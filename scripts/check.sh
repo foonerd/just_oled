@@ -11,9 +11,14 @@ cargo fmt --all -- --check
 
 echo "check: clippy"
 cargo clippy --workspace --all-targets --locked -- -D warnings
+# A workspace build unifies features, so the library as the tap sees it
+# (no display) and as the daemon sees it (no tap) are linted on their own.
+cargo clippy -p justoled --no-default-features --features tap --all-targets --locked -- -D warnings
+cargo clippy -p justoled --no-default-features --features display --all-targets --locked -- -D warnings
 
 echo "check: tests"
 cargo test --workspace --locked
+cargo test -p justoled --no-default-features --features tap --locked
 
 echo "check: documentation"
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
@@ -32,27 +37,31 @@ if extra=$(comm -13 <(echo "$allowed") <(echo "$locked")) && [ -n "$extra" ]; th
 fi
 echo "check: the lock file names only the workspace and libc"
 
-echo "check: glibc"
+echo "check: glibc and size"
 # The daemon must load on Volumio's glibc 2.36: a symbol versioned above it,
 # even a weak one, makes the loader refuse the whole binary. The release
 # build refuses such a binary (scripts/ship.sh); here the same is asked of
-# this machine's build, which shows it wherever this machine's glibc is
-# newer than the player's.
-cargo build --locked -p just-oled -p justoled-tap
-for bin in target/debug/just-oled target/debug/libjustoledtap.so; do
+# this machine's release build, which shows it wherever this machine's
+# glibc is newer than the player's, and prints what the artefacts weigh.
+cargo build --release --locked -p just-oled -p justoled-tap
+for bin in target/release/just-oled target/release/libjustoledtap.so; do
   newest=$(readelf -W --dyn-syms "$bin" | grep -o 'GLIBC_2\.[0-9]*' | sort -t. -k2,2n -u | tail -n1)
+  # Above 2.36 means 2.37 to 2.39, or 2.40 and up; 2.4 to 2.9 are the oldest symbols there are.
   case "$newest" in
-    GLIBC_2.3[7-9]|GLIBC_2.[4-9]*|GLIBC_2.[1-9][0-9][0-9])
+    GLIBC_2.3[7-9]|GLIBC_2.[4-9][0-9]|GLIBC_2.[1-9][0-9][0-9])
       echo "check: $bin refers to $newest, newer than Volumio's glibc 2.36:" >&2
       readelf -W --dyn-syms "$bin" | grep "$newest" >&2
       exit 1
       ;;
   esac
+  strip -o "$bin.stripped" "$bin"
+  printf 'check: %s: %s stripped, glibc %s\n' "$bin" "$(stat -c %s "$bin.stripped" | numfmt --to=iec)" "${newest:-none}"
+  rm -f "$bin.stripped"
 done
 
 echo "check: catalogue"
 # The list the wiki is generated from must come out and parse as JSON.
-cargo run -q --locked -p just-oled -- --list --json > target/catalog.json
+cargo run -q --release --locked -p just-oled -- --list --json > target/catalog.json
 
 echo "check: shell scripts"
 for script in scripts/*.sh plugin/*.sh plugin/scripts/*.sh; do

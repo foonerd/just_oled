@@ -56,8 +56,9 @@ glibc_max() {
 }
 for bin in bin/*/just-oled lib/*/libjustoledtap.so; do
   version=$(glibc_max "$bin")
+  # Above 2.36 means 2.37 to 2.39, or 2.40 and up; 2.4 to 2.9 are the oldest symbols there are.
   case "$version" in
-    GLIBC_2.3[7-9]|GLIBC_2.[4-9]*|GLIBC_2.[1-9][0-9][0-9])
+    GLIBC_2.3[7-9]|GLIBC_2.[4-9][0-9]|GLIBC_2.[1-9][0-9][0-9])
       echo "ship: $bin needs $version, newer than Volumio's glibc 2.36" >&2
       readelf -W --dyn-syms "$bin" | grep "$version" >&2
       exit 1
