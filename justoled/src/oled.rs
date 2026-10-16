@@ -177,6 +177,9 @@ fn spi_settings(controller: Controller) -> (u8, u32) {
     match controller {
         // 20 MHz maximum (50 ns cycle); 10 MHz is what the module vendor's demo runs.
         Controller::Ssd1351 => (0, 10_000_000),
+        // Sino Wealth's sheets give a 250 ns cycle: 4 MHz.
+        Controller::Sh1106 | Controller::Sh1107 | Controller::Sh1122 => (0, 4_000_000),
+        // Solomon Systech's one-bit and grey controllers: 100 ns cycle, 10 MHz; a step under.
         _ => (0, 8_000_000),
     }
 }
@@ -234,6 +237,7 @@ impl Oled {
             Family::Ssd1306 => ssd1306::init(&self.link, self.entry)?,
             Family::Sh1106 => sh1106::init(&self.link, self.entry)?,
             Family::Sh1107 => sh1107::init(&self.link, self.entry)?,
+            Family::Grey => grey::init(&self.link, self.entry)?,
             Family::None => return Err(not_driven(self.entry.controller)),
         }
         let blank = self.canvas();
@@ -256,6 +260,7 @@ impl Oled {
             Family::Ssd1351 => ssd1351::show(&self.link, self.entry, canvas.bytes()),
             Family::Ssd1306 => ssd1306::show(&self.link, self.entry, canvas),
             Family::Sh1106 | Family::Sh1107 => paged::show_by_page(&self.link, self.entry, canvas),
+            Family::Grey => grey::show(&self.link, self.entry, canvas),
             Family::None => Err(not_driven(self.entry.controller)),
         }
     }
@@ -283,6 +288,7 @@ impl Oled {
             Family::Ssd1306 | Family::Sh1106 | Family::Sh1107 => {
                 self.link.command(&[paged::CONTRAST, level])
             }
+            Family::Grey => grey::contrast(&self.link, self.entry, level),
             Family::None => Err(not_driven(self.entry.controller)),
         }
     }
@@ -301,6 +307,8 @@ enum Family {
     Sh1106,
     /// Page addressing, pages along the long axis.
     Sh1107,
+    /// The four-bit greys: SSD1322, SSD1325, SSD1327, SSD1362, SH1122.
+    Grey,
     Ssd1351,
     None,
 }
@@ -312,6 +320,11 @@ fn family(controller: Controller) -> Family {
         }
         Controller::Sh1106 => Family::Sh1106,
         Controller::Sh1107 => Family::Sh1107,
+        Controller::Ssd1322
+        | Controller::Ssd1325
+        | Controller::Ssd1327
+        | Controller::Ssd1362
+        | Controller::Sh1122 => Family::Grey,
         Controller::Ssd1351 => Family::Ssd1351,
         _ => Family::None,
     }
@@ -554,6 +567,233 @@ mod sh1107 {
     }
 }
 
+/// The four-bit grey controllers. Two pixels a byte, the left one in the
+/// high nibble as the canvas packs it; each controller's remap bits are
+/// set so that is how it reads them (u8g2's and luma.oled's choice for
+/// the same packing). The SSD1322 takes command arguments as data, the
+/// others as commands. Transcribed from the data sheets, u8g2's
+/// `u8x8_d_ssd1322.c`, `u8x8_d_ssd1325.c`, `u8x8_d_ssd1327.c` and
+/// `u8x8_d_sh1122.c` (BSD-2, olikraus) and luma.oled's `ssd1322`,
+/// `ssd1327` and `ssd1362`.
+mod grey {
+    use super::*;
+
+    /// Where a glass sits in its controller's RAM, in that controller's units.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Geometry {
+        /// 0xA8 or 0xCA: rows driven, less one.
+        pub multiplex: u8,
+        /// 0xA2: the COM line the first row starts at.
+        pub row_offset: u8,
+        /// The first column address of the glass, in the controller's
+        /// column units (two pixels on most, four on the SSD1322).
+        pub col_start: u8,
+        /// The last column address of the glass.
+        pub col_end: u8,
+    }
+
+    pub fn geometry(entry: &Entry) -> Geometry {
+        let mux = (entry.height - 1) as u8;
+        let per_address: u16 = if entry.controller == Controller::Ssd1322 {
+            4
+        } else {
+            2
+        };
+        let columns = (entry.width / per_address) as u8;
+        match entry.id {
+            // u8g2 ssd1322_nhd_256x64, luma: 480 columns of RAM, the glass centred, 28 addresses in.
+            "ssd1322_256x64" => Geometry {
+                multiplex: 0x3F,
+                row_offset: 0,
+                col_start: 0x1C,
+                col_end: 0x1C + columns - 1,
+            },
+            // u8g2 ssd1325_nhd_128x64: COM offset 0x4C.
+            "ssd1325_128x64" => Geometry {
+                multiplex: 0x3F,
+                row_offset: 0x4C,
+                col_start: 0,
+                col_end: columns - 1,
+            },
+            // u8g2 visionox_128x96: 96 rows at COM offset 0x20.
+            "ssd1327_128x96" => Geometry {
+                multiplex: 0x5F,
+                row_offset: 0x20,
+                col_start: 0,
+                col_end: columns - 1,
+            },
+            // u8g2 seeed_96x96: the glass at the far end of the 128-column RAM, COM offset 0x20.
+            "ssd1327_96x96" => Geometry {
+                multiplex: 0x5F,
+                row_offset: 0x20,
+                col_start: 16,
+                col_end: 16 + columns - 1,
+            },
+            _ => Geometry {
+                multiplex: mux,
+                row_offset: 0,
+                col_start: 0,
+                col_end: columns - 1,
+            },
+        }
+    }
+
+    /// A command with its arguments, the way the controller takes them.
+    fn cmd(link: &Link, entry: &Entry, command: u8, args: &[u8]) -> io::Result<()> {
+        if entry.controller == Controller::Ssd1322 {
+            link.command(&[command])?;
+            if !args.is_empty() {
+                link.data(args)?;
+            }
+            Ok(())
+        } else {
+            let mut bytes = Vec::with_capacity(1 + args.len());
+            bytes.push(command);
+            bytes.extend_from_slice(args);
+            link.command(&bytes)
+        }
+    }
+
+    pub fn init(link: &Link, entry: &Entry) -> io::Result<()> {
+        let g = geometry(entry);
+        let c = |command: u8, args: &[u8]| cmd(link, entry, command, args);
+        match entry.controller {
+            // u8g2's ws_128x128 order, from Waveshare's demo for its 1.5inch OLED Module.
+            Controller::Ssd1327 => {
+                c(DISPLAY_OFF, &[])?;
+                c(0x15, &[g.col_start, g.col_end])?;
+                c(0x75, &[0x00, mux_rows(entry)])?;
+                c(0x81, &[0x80])?; // contrast
+                c(0xA0, &[0x51])?; // remap: column remap, COM remap, COM split; nibbles as written
+                c(0xA1, &[0x00])?; // start line
+                c(0xA2, &[g.row_offset])?;
+                c(0xA4, &[])?; // normal display
+                c(0xA8, &[g.multiplex])?;
+                c(0xB1, &[0xF1])?; // phase length
+                c(0xB3, &[0x00])?; // clock divide and oscillator
+                c(0xAB, &[0x01])?; // internal VDD regulator
+                c(0xB6, &[0x0F])?; // second precharge period
+                c(0xBE, &[0x0F])?; // VCOMH
+                c(0xBC, &[0x08])?; // precharge voltage
+                c(0xD5, &[0x62])?; // second precharge and VSL
+                c(0xFD, &[0x12])?; // command lock: unlocked
+            }
+            // luma.oled's ssd1322 (the common 3.12" 256x64 glasses, NHD's sheet); u8g2 agrees but for the flip.
+            Controller::Ssd1322 => {
+                c(0xFD, &[0x12])?; // unlock
+                c(DISPLAY_OFF, &[])?;
+                c(0xB3, &[0x91])?; // clock divide and oscillator
+                c(0xCA, &[g.multiplex])?;
+                c(0xA2, &[g.row_offset])?;
+                c(0xA1, &[0x00])?; // start line
+                c(0xA0, &[0x14, 0x11])?; // remap: nibble remap, COM scan reversed; dual COM line
+                c(0xB5, &[0x00])?; // GPIO off
+                c(0xAB, &[0x01])?; // internal VDD regulator
+                c(0xB4, &[0xA0, 0xFD])?; // display enhancement A: external VSL
+                c(0xC1, &[0x9F])?; // contrast current
+                c(0xC7, &[0x0F])?; // master contrast at full
+                c(0xB9, &[])?; // linear grey scale
+                c(0xB1, &[0xE2])?; // phase length
+                c(0xD1, &[0x82, 0x20])?; // display enhancement B
+                c(0xBB, &[0x1F])?; // precharge voltage
+                c(0xB6, &[0x08])?; // second precharge period
+                c(0xBE, &[0x07])?; // VCOMH
+                c(0xA6, &[])?; // normal display
+                c(0xA9, &[])?; // exit partial display
+            }
+            // u8g2 ssd1325_nhd_128x64.
+            Controller::Ssd1325 => {
+                c(DISPLAY_OFF, &[])?;
+                c(0xB3, &[0x91])?; // clock divide and oscillator
+                c(0xA8, &[g.multiplex])?;
+                c(0xA2, &[g.row_offset])?;
+                c(0xA1, &[0x00])?; // start line
+                c(0xAD, &[0x02])?; // master configuration: external VCC
+                c(0xA0, &[0x52])?; // remap: nibble remap on, COM remap, COM split
+                c(0x86, &[])?; // full current range
+                c(0xB8, &[0x01, 0x11, 0x22, 0x32, 0x43, 0x54, 0x65, 0x76])?; // grey scale table
+                c(0x81, &[0x70])?; // contrast
+                c(0xB2, &[0x51])?; // frame frequency
+                c(0xB1, &[0x55])?; // phase length
+                c(0xBC, &[0x10])?; // precharge voltage
+                c(0xBE, &[0x1C])?; // VCOMH
+                c(0xA4, &[])?; // normal display
+            }
+            // luma.oled's ssd1362, the nibble remap bit cleared for the canvas's packing.
+            Controller::Ssd1362 => {
+                c(0xAB, &[0x01])?; // internal VDD regulator
+                c(0xAD, &[0x9E])?; // IREF selection
+                c(0x15, &[g.col_start, g.col_end])?;
+                c(0x75, &[0x00, mux_rows(entry)])?;
+                c(0xA0, &[0x41])?; // remap: column remap, COM split
+                c(0xA1, &[0x00])?; // start line
+                c(0xA2, &[g.row_offset])?;
+                c(0xA4, &[])?; // normal display
+                c(0xA8, &[g.multiplex])?;
+                c(0xB1, &[0x11])?; // phase lengths
+                c(0xB3, &[0xF0])?; // clock divide and oscillator
+                c(0xB9, &[])?; // linear grey scale
+                c(0xBC, &[0x04])?; // precharge voltage
+                c(0xBE, &[0x05])?; // VCOMH
+            }
+            // u8g2 sh1122_256x64.
+            Controller::Sh1122 => {
+                c(DISPLAY_OFF, &[])?;
+                c(0x40, &[])?; // start line 0
+                c(0xA0, &[])?; // segment remap off
+                c(0xC0, &[])?; // COM scan normal
+                c(0x81, &[0x80])?; // contrast
+                c(0xA8, &[g.multiplex])?;
+                c(0xAD, &[0x81])?; // built-in DC-DC, 0.6 x 500 kHz
+                c(0xD5, &[0x50])?; // clock divide and oscillator
+                c(0xD3, &[g.row_offset])?;
+                c(0xD9, &[0x22])?; // precharge and discharge periods
+                c(0xDB, &[0x35])?; // VCOM deselect level
+                c(0xDC, &[0x35])?; // precharge output voltage
+                c(0x30, &[])?; // discharge level
+            }
+            _ => return Err(not_driven(entry.controller)),
+        }
+        Ok(())
+    }
+
+    fn mux_rows(entry: &Entry) -> u8 {
+        (entry.height - 1) as u8
+    }
+
+    pub fn contrast(link: &Link, entry: &Entry, level: u8) -> io::Result<()> {
+        match entry.controller {
+            Controller::Ssd1322 => cmd(link, entry, 0xC1, &[level]),
+            _ => cmd(link, entry, 0x81, &[level]),
+        }
+    }
+
+    pub fn show(link: &Link, entry: &Entry, canvas: &Canvas) -> io::Result<()> {
+        debug_assert_eq!(entry.format(), Format::Grey4);
+        let g = geometry(entry);
+        match entry.controller {
+            // Row addressed: each row set by hand, then its bytes.
+            Controller::Sh1122 => {
+                let row_bytes = (entry.width as usize).div_ceil(2);
+                let col = g.col_start;
+                for (y, row) in canvas.bytes().chunks(row_bytes).enumerate() {
+                    link.command(&[0xB0, y as u8, col & 0x0F, 0x10 | (col >> 4)])?;
+                    link.data(row)?;
+                }
+                Ok(())
+            }
+            _ => {
+                cmd(link, entry, 0x15, &[g.col_start, g.col_end])?;
+                cmd(link, entry, 0x75, &[0x00, mux_rows(entry)])?;
+                if entry.controller == Controller::Ssd1322 {
+                    link.command(&[0x5C])?; // write RAM
+                }
+                link.data(canvas.bytes())
+            }
+        }
+    }
+}
+
 /// SSD1351: 128 x 128 RGB, 65K colour, in Solomon Systech's data sheet
 /// rev 1.5. Command arguments go as data. Values follow the sheet's
 /// reset defaults where the reference drivers (Waveshare's demo for the
@@ -634,7 +874,7 @@ mod tests {
 
     #[test]
     fn an_undriven_controller_says_so_before_touching_the_bus() {
-        let entry = catalog::find("ssd1327_128x128").expect("catalogued");
+        let entry = catalog::find("ch1120_128x128").expect("catalogued");
         assert!(!driven(entry.controller));
         let err = Oled::open(
             entry,
@@ -696,6 +936,44 @@ mod tests {
         // The page write addresses sixteen pages of 64 bytes on the tall glass.
         let c = Canvas::new(Format::Paged1, 64, 128);
         assert_eq!((c.pages(), c.page(15).len()), (16, 64));
+    }
+
+    #[test]
+    fn the_grey_family_knows_its_column_units() {
+        use grey::geometry;
+        for id in [
+            "ssd1327_128x128",
+            "ssd1327_128x96",
+            "ssd1327_96x96",
+            "ssd1322_256x64",
+            "ssd1325_128x64",
+            "sh1122_256x64",
+            "ssd1362_256x64",
+        ] {
+            let e = catalog::find(id).expect(id);
+            assert!(driven_entry(e), "{id}");
+            assert_eq!(e.format(), Format::Grey4, "{id}");
+        }
+        // SSD1322: four pixels an address, the 256 glass centred in 480 columns.
+        let g = geometry(catalog::find("ssd1322_256x64").unwrap());
+        assert_eq!((g.col_start, g.col_end, g.multiplex), (0x1C, 0x5B, 0x3F));
+        // SSD1327: two pixels an address.
+        let g = geometry(catalog::find("ssd1327_128x128").unwrap());
+        assert_eq!(
+            (g.col_start, g.col_end, g.multiplex, g.row_offset),
+            (0, 63, 0x7F, 0)
+        );
+        let g = geometry(catalog::find("ssd1327_128x96").unwrap());
+        assert_eq!((g.multiplex, g.row_offset), (0x5F, 0x20));
+        let g = geometry(catalog::find("ssd1327_96x96").unwrap());
+        assert_eq!((g.col_start, g.col_end), (16, 63));
+        let g = geometry(catalog::find("ssd1325_128x64").unwrap());
+        assert_eq!((g.row_offset, g.col_end), (0x4C, 63));
+        let g = geometry(catalog::find("sh1122_256x64").unwrap());
+        assert_eq!((g.col_start, g.col_end), (0, 127));
+        // A 256x64 grey frame is 64 rows of 128 bytes, as the SH1122 row write takes it.
+        let c = Canvas::new(Format::Grey4, 256, 64);
+        assert_eq!(c.bytes().len(), 64 * 128);
     }
 
     #[test]
