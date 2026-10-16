@@ -38,8 +38,6 @@ const PANEL_RETRY: Duration = Duration::from_secs(5);
 const RING_LOOK: Duration = Duration::from_millis(500);
 /// Playing this long without a ring: the page says the tap is missing.
 const NO_TAP_PATIENCE: Duration = Duration::from_secs(10);
-/// Standing still this long after a stop: the panel goes dark.
-const STANDBY_DARK: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Clone, Debug, PartialEq)]
 enum Phase {
@@ -155,6 +153,7 @@ pub struct Daemon {
     track_at: Instant,
     status_since: Instant,
     started: Instant,
+    album: Marquee,
     artist: Marquee,
     title: Marquee,
     net: Net,
@@ -165,14 +164,18 @@ pub struct Daemon {
 /// How often the connection and address are read again.
 const NET_REFRESH: Duration = Duration::from_secs(10);
 
+fn bars_for(settings: Option<&Settings>) -> Bars {
+    let Some(s) = settings else {
+        return Bars::new(32);
+    };
+    Bars::new(pages::bar_count(s.entry.width, s.entry.height, s.look.face))
+        .with_gain_db(s.look.gain_db)
+}
+
 impl Daemon {
     pub fn new(settings: Option<Settings>, settings_path: PathBuf, ring_dir: PathBuf) -> Daemon {
         let now = Instant::now();
-        let bars = Bars::new(
-            settings
-                .as_ref()
-                .map_or(32, |s| pages::bar_count(s.entry.width, s.entry.height)),
-        );
+        let bars = bars_for(settings.as_ref());
         Daemon {
             settings,
             settings_path,
@@ -190,6 +193,7 @@ impl Daemon {
             track_at: now,
             status_since: now,
             started: now,
+            album: Marquee::default(),
             artist: Marquee::default(),
             title: Marquee::default(),
             net: Net::default(),
@@ -304,6 +308,7 @@ impl Daemon {
                 }
                 self.track = *track;
                 self.track_at = now;
+                self.album.set(&self.track.album, now);
                 self.artist.set(&self.track.artist, now);
                 self.title.set(&self.track.title, now);
                 if self.phase == Phase::Boot {
@@ -396,7 +401,7 @@ impl Daemon {
             .settings
             .as_ref()
             .is_some_and(|old| old.rotate != fresh.rotate);
-        self.bars = Bars::new(pages::bar_count(fresh.entry.width, fresh.entry.height));
+        self.bars = bars_for(Some(&fresh));
         self.settings = Some(fresh);
         if reopen {
             if let Some(mut p) = self.panel.take() {
@@ -442,22 +447,34 @@ impl Daemon {
         let since = now.duration_since(self.status_since);
         let blind = status == Status::Play && !ring_live && since > NO_TAP_PATIENCE;
         let mut display_on = true;
-        let clock = pages::local_time();
         let view = View {
             track: &self.track,
             bars: &self.bars,
             blind,
             elapsed_s,
-            clock,
             net: &self.net,
+            look: &s.look,
+            album: &self.album,
             artist: &self.artist,
             title: &self.title,
             now,
         };
+        // The standby page as the user set it: the clock and date in their
+        // formats, or a dark panel; and dark after the timeout either way.
+        let standby = |canvas: &mut Canvas, since: Duration| -> bool {
+            if s.idle_clock {
+                let clock = pages::local_strftime(&s.clock_format);
+                let date = pages::local_strftime(&s.date_format);
+                pages::standby(canvas, &clock, &date, &self.net, &s.look);
+            } else {
+                canvas.clear();
+            }
+            s.idle_clock && s.idle_timeout.is_none_or(|t| since < t)
+        };
         match &self.phase {
             Phase::Boot if s.show_lifecycle => pages::lines(&mut panel.canvas, &s.text_boot),
             Phase::Boot => {
-                pages::standby(&mut panel.canvas, clock, &pages::local_date(), &self.net)
+                display_on = standby(&mut panel.canvas, Duration::ZERO);
             }
             Phase::Ready { .. } => pages::lines(&mut panel.canvas, &s.text_ready),
             Phase::Message { lines, .. } => pages::lines(&mut panel.canvas, lines),
@@ -468,8 +485,7 @@ impl Daemon {
                 Status::Pause if s.show_lifecycle => pages::lines(&mut panel.canvas, &s.text_pause),
                 Status::Pause => pages::playing(&mut panel.canvas, &view),
                 Status::Stop => {
-                    pages::standby(&mut panel.canvas, clock, &pages::local_date(), &self.net);
-                    display_on = since < STANDBY_DARK;
+                    display_on = standby(&mut panel.canvas, since);
                 }
             },
         }
@@ -580,12 +596,17 @@ mod tests {
                 reset: None,
             },
             rotate: Default::default(),
+            look: Default::default(),
             show_lifecycle: true,
             text_boot: vec!["Volumio".into(), "booting...".into()],
             text_ready: vec!["Volumio".into(), "ready".into()],
             text_pause: vec!["Paused".into()],
             text_shutdown: vec!["Bye".into()],
             text_reboot: vec!["Back soon".into()],
+            idle_clock: true,
+            idle_timeout: Some(Duration::from_secs(1800)),
+            clock_format: "%H:%M".into(),
+            date_format: "%a %d %b".into(),
         }
     }
 

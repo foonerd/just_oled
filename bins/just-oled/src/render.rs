@@ -14,7 +14,7 @@ use justoled::ring::Frame;
 use crate::control::{Status, Track};
 use crate::meter::Bars;
 use crate::net::{Connection, Net};
-use crate::pages::{self, Marquee, View};
+use crate::pages::{self, Face, Look, Marquee, TimeDisplay, View};
 use crate::pattern;
 
 /// The panel classes the pages are laid out for.
@@ -26,21 +26,37 @@ const CLASSES: &[(&str, Format, u16, u16)] = &[
     ("96x64-rgb", Format::Rgb565, 96, 64),
 ];
 
-fn bars_for(width: u16, height: u16) -> Bars {
-    let mut bars = Bars::new(pages::bar_count(width, height));
-    // A spectrum shape that reads as music: a bass hump and a presence lift.
-    let bands: Vec<f32> = (0..64)
-        .map(|i| {
-            let x = i as f32 / 63.0;
-            let hump = (-((x - 0.15) * 6.0).powi(2)).exp();
-            let lift = 0.5 * (-((x - 0.7) * 4.0).powi(2)).exp();
-            (0.02 + 0.9 * hump + lift).min(1.0) * 0.8
-        })
-        .collect();
+/// The faces, with the name each file carries.
+const FACES: &[(&str, Face)] = &[
+    ("spectrum", Face::Spectrum),
+    ("spectrum-stereo", Face::SpectrumStereo),
+    ("spectrum-vu", Face::SpectrumVu),
+    ("vu", Face::Vu),
+    ("text", Face::Text),
+    ("meter", Face::MeterOnly),
+];
+
+/// Scenes written per class: the lifecycle texts, the faces, the standby pages.
+const SCENES_PER_CLASS: usize = 6 + FACES.len() + 3;
+
+fn bars_for(width: u16, height: u16, face: Face) -> Bars {
+    let mut bars = Bars::new(pages::bar_count(width, height, face));
+    // A spectrum shape that reads as music: a bass hump and a presence
+    // lift, the right channel a little quieter so the stereo faces differ.
+    let shape = |gain: f32| -> Vec<f32> {
+        (0..64)
+            .map(|i| {
+                let x = i as f32 / 63.0;
+                let hump = (-((x - 0.15) * 6.0).powi(2)).exp();
+                let lift = 0.5 * (-((x - 0.7) * 4.0).powi(2)).exp();
+                (0.02 + 0.9 * hump + lift).min(1.0) * gain
+            })
+            .collect()
+    };
     let frame = Frame {
-        spectrum: [bands.clone(), bands],
-        peak: [0.7, 0.65],
-        rms: [0.25, 0.22],
+        spectrum: [shape(0.8), shape(0.6)],
+        peak: [0.7, 0.55],
+        rms: [0.25, 0.18],
         ..Frame::default()
     };
     bars.feed(&frame, Duration::from_millis(40));
@@ -82,65 +98,99 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         ip: "192.168.1.23".into(),
     };
     let now = Instant::now();
-    let (mut artist, mut title) = (Marquee::default(), Marquee::default());
+    let (mut album, mut artist, mut title) =
+        (Marquee::default(), Marquee::default(), Marquee::default());
+    album.set(&track.album, now);
     artist.set(&track.artist, now);
     title.set(&track.title, now);
     let date = "Thu 16 Oct 2026";
     let mut written = 0;
     for &(class, format, w, h) in CLASSES {
-        let bars = bars_for(w, h);
-        let silent = Bars::new(pages::bar_count(w, h));
-        // Two views, since a closure cannot tie its output to its argument's lifetime.
-        let view = View {
-            track: &track,
-            bars: &bars,
-            blind: false,
-            elapsed_s: 83,
-            clock: (20, 45),
-            net: &net,
-            artist: &artist,
-            title: &title,
-            now,
-        };
-        let blind_view = View {
-            bars: &silent,
-            blind: true,
-            ..view
-        };
-        let mut scenes: Vec<(&str, Canvas)> = Vec::new();
+        let mut scenes: Vec<(String, Canvas)> = Vec::with_capacity(SCENES_PER_CLASS);
         let fresh = || Canvas::new(format, w, h);
 
         let mut c = fresh();
         pages::lines(&mut c, &["Volumio".into(), "booting...".into()]);
-        scenes.push(("boot", c));
+        scenes.push(("boot".into(), c));
 
         let mut c = fresh();
         pages::lines(&mut c, &["Volumio".into(), "ready".into()]);
-        scenes.push(("ready", c));
+        scenes.push(("ready".into(), c));
 
-        let mut c = fresh();
-        pages::playing(&mut c, &view);
-        scenes.push(("playing", c));
+        for &(name, face) in FACES {
+            let bars = bars_for(w, h, face);
+            let look = Look {
+                face,
+                // The text face shows the time left, so the row is seen both ways.
+                time: if face == Face::Text {
+                    TimeDisplay::Remaining
+                } else {
+                    TimeDisplay::ElapsedTotal
+                },
+                ..Look::default()
+            };
+            let view = View {
+                track: &track,
+                bars: &bars,
+                blind: false,
+                elapsed_s: 83,
+                net: &net,
+                look: &look,
+                album: &album,
+                artist: &artist,
+                title: &title,
+                now,
+            };
+            let mut c = fresh();
+            pages::playing(&mut c, &view);
+            scenes.push((format!("face-{name}"), c));
+        }
 
+        let silent = Bars::new(pages::bar_count(w, h, Face::Spectrum));
+        let look = Look::default();
+        let blind_view = View {
+            track: &track,
+            bars: &silent,
+            blind: true,
+            elapsed_s: 83,
+            net: &net,
+            look: &look,
+            album: &album,
+            artist: &artist,
+            title: &title,
+            now,
+        };
         let mut c = fresh();
         pages::playing(&mut c, &blind_view);
-        scenes.push(("playing-no-tap", c));
+        scenes.push(("playing-no-tap".into(), c));
 
         let mut c = fresh();
         pages::lines(&mut c, &["Paused".into(), "waiting on music".into()]);
-        scenes.push(("paused", c));
+        scenes.push(("paused".into(), c));
 
         let mut c = fresh();
-        pages::standby(&mut c, (20, 45), date, &net);
-        scenes.push(("standby", c));
+        pages::standby(&mut c, "20:45", date, &net, &look);
+        scenes.push(("standby".into(), c));
+
+        let mut c = fresh();
+        pages::standby(&mut c, "8:45 pm", "Thursday 16 October", &net, &look);
+        scenes.push(("standby-12h".into(), c));
+
+        let quiet = Look {
+            show_ip: false,
+            ..Look::default()
+        };
+        let mut c = fresh();
+        pages::standby(&mut c, "20:45:30", "16.10.2026", &net, &quiet);
+        scenes.push(("standby-no-ip".into(), c));
 
         let mut c = fresh();
         pages::lines(&mut c, &["Volumio".into(), "shutting down".into()]);
-        scenes.push(("farewell", c));
+        scenes.push(("farewell".into(), c));
 
         let mut c = fresh();
         pattern::draw(&mut c);
-        scenes.push(("test", c));
+        scenes.push(("test".into(), c));
 
         for (name, canvas) in scenes {
             write_ppm(&dir.join(format!("{class}-{name}.ppm")), &canvas)?;
@@ -158,8 +208,8 @@ mod tests {
     fn every_scene_renders_on_every_class() {
         let dir = std::env::temp_dir().join(format!("just-oled-render-{}", std::process::id()));
         let n = render(&dir).expect("render");
-        assert_eq!(n, CLASSES.len() * 8);
-        let one = std::fs::read(dir.join("128x128-rgb-playing.ppm")).unwrap();
+        assert_eq!(n, CLASSES.len() * SCENES_PER_CLASS);
+        let one = std::fs::read(dir.join("128x128-rgb-face-spectrum.ppm")).unwrap();
         assert!(one.starts_with(b"P6\n128 128\n255\n"));
         assert_eq!(one.len(), "P6\n128 128\n255\n".len() + 128 * 128 * 3);
         let _ = std::fs::remove_dir_all(&dir);

@@ -9,6 +9,9 @@ use justoled::catalog::{self, Entry};
 use justoled::json::Store;
 use justoled::oled::Wiring;
 
+use crate::meter::GAIN_DB_RANGE;
+use crate::pages::{Face, Look, TimeDisplay, CLOCK_FORMATS, DATE_FORMATS};
+
 /// Where Volumio keeps the plugin's store.
 pub const DEFAULT_PATH: &str = "/data/configuration/system_hardware/just_oled/config.json";
 
@@ -17,6 +20,8 @@ pub struct Settings {
     pub entry: &'static Entry,
     pub wiring: Wiring,
     pub rotate: Rotate,
+    /// The face: what the playing and standby pages show.
+    pub look: Look,
     /// Whether the boot, ready, pause and farewell texts are shown.
     pub show_lifecycle: bool,
     /// Each text as its rows, `|` splitting them.
@@ -25,6 +30,13 @@ pub struct Settings {
     pub text_pause: Vec<String>,
     pub text_shutdown: Vec<String>,
     pub text_reboot: Vec<String>,
+    /// The standby page: the clock, or nothing at all.
+    pub idle_clock: bool,
+    /// Standby time before the panel goes dark; `None` keeps the clock on.
+    pub idle_timeout: Option<std::time::Duration>,
+    /// `strftime` patterns, one of `CLOCK_FORMATS` and `DATE_FORMATS`.
+    pub clock_format: String,
+    pub date_format: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -100,16 +112,45 @@ impl Settings {
             let t = store.string(key).unwrap_or_else(|| default.to_string());
             t.split('|').map(|s| s.trim().to_string()).collect()
         };
+        let one_of = |key: &str, offered: &[&str]| -> String {
+            let chosen = store.string(key).unwrap_or_default();
+            if offered.contains(&chosen.as_str()) {
+                chosen
+            } else {
+                offered[0].to_string()
+            }
+        };
+        let look = Look {
+            face: Face::from_setting(&store.string("face").unwrap_or_default()),
+            time: TimeDisplay::from_setting(&store.string("time_display").unwrap_or_default()),
+            show_format: store.boolean("show_format").unwrap_or(true),
+            peaks: store.boolean("peaks").unwrap_or(true),
+            gain_db: store
+                .number("meter_gain")
+                .map_or(0, |n| n.round() as i32)
+                .clamp(-GAIN_DB_RANGE, GAIN_DB_RANGE),
+            show_ip: store.boolean("show_ip").unwrap_or(true),
+        };
         Ok(Settings {
             entry,
             wiring,
             rotate,
+            look,
             show_lifecycle: store.boolean("show_lifecycle").unwrap_or(true),
             text_boot: text("text_boot", "Volumio|booting..."),
             text_ready: text("text_ready", "Volumio|ready"),
             text_pause: text("text_pause", "Paused|waiting on music"),
             text_shutdown: text("text_shutdown", "Volumio|shutting down"),
             text_reboot: text("text_reboot", "Volumio|restarting"),
+            idle_clock: store.string("idle_screen").as_deref() != Some("blank"),
+            idle_timeout: match store.number("idle_timeout").unwrap_or(30.0) {
+                m if m <= 0.0 => None,
+                m => Some(std::time::Duration::from_secs(
+                    (m.min(1440.0) * 60.0) as u64,
+                )),
+            },
+            clock_format: one_of("clock_format", CLOCK_FORMATS),
+            date_format: one_of("date_format", DATE_FORMATS),
         })
     }
 
@@ -175,6 +216,61 @@ mod tests {
             }
         );
         assert_eq!(s.rotate, Rotate::Half);
+        // Face and standby defaults: the spectrum with everything, the clock,
+        // dark after half an hour, 24-hour, address shown.
+        assert_eq!(s.look, Look::default());
+        assert!(s.idle_clock);
+        assert_eq!(s.idle_timeout, Some(std::time::Duration::from_secs(1800)));
+        assert_eq!(
+            (s.clock_format.as_str(), s.date_format.as_str()),
+            ("%H:%M", "%a %d %b")
+        );
+        let text = store(&[
+            ("connection", "\"spi\""),
+            ("panel", "\"ssd1351_128x128\""),
+            ("gpio_dc", "25"),
+            ("face", "\"vu\""),
+            ("time_display", "\"remaining\""),
+            ("show_format", "false"),
+            ("peaks", "false"),
+            ("meter_gain", "-6"),
+            ("idle_screen", "\"blank\""),
+            ("idle_timeout", "0"),
+            ("clock_format", "\"%I:%M %p\""),
+            ("date_format", "\"%Y-%m-%d\""),
+            ("show_ip", "false"),
+        ]);
+        let s = Settings::parse(&text).expect("parses");
+        assert_eq!(
+            s.look,
+            Look {
+                face: Face::Vu,
+                time: TimeDisplay::Remaining,
+                show_format: false,
+                peaks: false,
+                gain_db: -6,
+                show_ip: false,
+            }
+        );
+        assert!(!s.idle_clock);
+        assert_eq!(s.idle_timeout, None);
+        assert_eq!(
+            (s.clock_format.as_str(), s.date_format.as_str()),
+            ("%I:%M %p", "%Y-%m-%d")
+        );
+        // A format that is not offered falls back on the first.
+        let text = store(&[
+            ("connection", "\"spi\""),
+            ("panel", "\"ssd1351_128x128\""),
+            ("gpio_dc", "25"),
+            ("clock_format", "\"12h\""),
+            ("face", "\"disco\""),
+            ("meter_gain", "99"),
+        ]);
+        let s = Settings::parse(&text).expect("parses");
+        assert_eq!(s.clock_format, "%H:%M");
+        assert_eq!(s.look.face, Face::Spectrum);
+        assert_eq!(s.look.gain_db, 12, "held to the range");
     }
 
     #[test]

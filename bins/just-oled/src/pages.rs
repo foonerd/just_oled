@@ -94,122 +94,211 @@ pub struct Rect {
 }
 
 /// Where the parts of the playing page go on a panel of a given size.
-#[derive(Clone, Copy, Debug)]
+/// Every part is optional: a face decides which are there, the panel's
+/// size decides where.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Layout {
-    pub bars: Rect,
-    /// The format, volume and connection row; `None` on a strip.
+    /// The meter's box; `None` on a text face.
+    pub meter: Option<Rect>,
+    /// The format, volume and connection row.
     pub status: Option<Rect>,
-    /// The clock; `None` on a strip.
-    pub clock: Option<(Rect, &'static Font)>,
-    /// The artist row; `None` on a strip.
+    /// Elapsed and total time.
+    pub time: Option<Rect>,
+    pub album: Option<(Rect, &'static Font)>,
     pub artist: Option<(Rect, &'static Font)>,
-    pub title: (Rect, &'static Font),
-    pub progress: Rect,
+    pub title: Option<(Rect, &'static Font)>,
+    pub progress: Option<Rect>,
 }
 
 const STATUS_H: i32 = 15;
 
-/// The playing page's layout for a panel `w` by `h`:
-/// - a strip (under 40 rows): the title over the bars, a progress line under;
-/// - a 64-row panel: the bars on the left half, the status line and the
-///   clock on the right, then artist and title across, as mpd_oled lays it;
-/// - a tall panel: the bars across the top, then status, clock, artist, title.
-pub fn layout(w: i32, h: i32) -> Layout {
-    if h < 40 {
-        let title_h = SMALL.line_height as i32;
+/// The face: what the panel shows while music plays. The meter kinds
+/// share one arrangement of the text; the text face gives the rows the
+/// meter's room; the meter face gives the meter the whole panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Face {
+    /// The spectrum, both channels folded into one row of bars, with the track.
+    #[default]
+    Spectrum,
+    /// The spectrum per channel, the left rising and the right hanging, with the track.
+    SpectrumStereo,
+    /// The folded spectrum with the two level bars beside it, with the track.
+    SpectrumVu,
+    /// Left and right level bars, with the track.
+    Vu,
+    /// The track alone, in larger type: no meter.
+    Text,
+    /// The spectrum alone, the whole panel, a progress line under it.
+    MeterOnly,
+}
+
+impl Face {
+    pub fn from_setting(value: &str) -> Face {
+        match value {
+            "spectrum_stereo" => Face::SpectrumStereo,
+            "spectrum_vu" => Face::SpectrumVu,
+            "vu" => Face::Vu,
+            "text" => Face::Text,
+            "meter" => Face::MeterOnly,
+            _ => Face::Spectrum,
+        }
+    }
+
+    fn has_meter(self) -> bool {
+        self != Face::Text
+    }
+}
+
+fn row(x: i32, y: i32, w: i32, font: &'static Font) -> (Rect, &'static Font) {
+    (
+        Rect {
+            x,
+            y,
+            w,
+            h: font.line_height as i32,
+        },
+        font,
+    )
+}
+
+/// The playing page's layout for a `face` on a panel `w` by `h`.
+///
+/// With a meter: a strip (under 40 rows) puts the title over the meter; a
+/// 64-row panel puts the meter on the left half with the status and the
+/// time on the right, then artist and title across, as mpd_oled lays it;
+/// a tall panel stacks meter, status, time, album, artist, title. The
+/// text face stacks the rows in larger type. Every face ends in a
+/// progress line.
+pub fn layout(w: i32, h: i32, face: Face) -> Layout {
+    let small = SMALL.line_height as i32;
+    let progress_h = if h < 96 { 1 } else { 2 };
+    let progress = Some(Rect {
+        x: 0,
+        y: h - progress_h,
+        w,
+        h: progress_h,
+    });
+    let body_h = h - progress_h - 1;
+
+    if face == Face::MeterOnly {
         return Layout {
-            bars: Rect {
+            meter: Some(Rect {
                 x: 0,
-                y: title_h,
+                y: 0,
                 w,
-                h: h - title_h - 2,
-            },
-            status: None,
-            clock: None,
-            artist: None,
-            title: (
-                Rect {
-                    x: 0,
-                    y: 0,
-                    w,
-                    h: title_h,
-                },
-                SMALL,
-            ),
-            progress: Rect {
-                x: 0,
-                y: h - 1,
-                w,
-                h: 1,
-            },
+                h: body_h,
+            }),
+            progress,
+            ..Layout::default()
         };
     }
-    let small = SMALL.line_height as i32;
+
+    if !face.has_meter() {
+        // Text: title first and largest, then what fits beneath.
+        let mut lay = Layout {
+            progress,
+            ..Layout::default()
+        };
+        let mut y = 0;
+        if h < 40 {
+            lay.title = Some(row(0, y, w, SMALL));
+            y += small;
+            if y + small <= body_h {
+                lay.artist = Some(row(0, y, w, SMALL));
+            }
+            return lay;
+        }
+        let title_font = if h >= 96 { LARGE } else { MEDIUM };
+        lay.title = Some(row(0, y, w, title_font));
+        y += title_font.line_height as i32;
+        let detail_font = if h >= 96 { MEDIUM } else { SMALL };
+        lay.artist = Some(row(0, y, w, detail_font));
+        y += detail_font.line_height as i32;
+        if y + small + STATUS_H <= body_h {
+            lay.album = Some(row(0, y, w, SMALL));
+            y += small;
+        }
+        // The last row: the time on the left, the format and icons on the right.
+        let status_y = body_h - STATUS_H;
+        if status_y >= y {
+            let time_w = if w >= 200 { w / 3 } else { w / 2 };
+            lay.time = Some(Rect {
+                x: 0,
+                y: status_y,
+                w: time_w,
+                h: STATUS_H,
+            });
+            lay.status = Some(Rect {
+                x: time_w,
+                y: status_y,
+                w: w - time_w,
+                h: STATUS_H,
+            });
+        }
+        return lay;
+    }
+
+    if h < 40 {
+        return Layout {
+            meter: Some(Rect {
+                x: 0,
+                y: small,
+                w,
+                h: body_h - small,
+            }),
+            title: Some(row(0, 0, w, SMALL)),
+            progress,
+            ..Layout::default()
+        };
+    }
     if h < 96 {
         let half = w / 2;
-        let top_h = h / 2;
+        let top_h = body_h - 2 * small;
         return Layout {
-            bars: Rect {
+            meter: Some(Rect {
                 x: 0,
                 y: 0,
                 w: half - 2,
                 h: top_h,
-            },
+            }),
             status: Some(Rect {
                 x: half + 2,
                 y: 0,
                 w: w - half - 2,
                 h: STATUS_H,
             }),
-            clock: Some((
-                Rect {
-                    x: half + 2,
-                    y: STATUS_H - 2,
-                    w: w - half - 2,
-                    h: top_h - STATUS_H + 2,
-                },
-                MEDIUM,
-            )),
-            artist: Some((
-                Rect {
-                    x: 0,
-                    y: top_h + 1,
-                    w,
-                    h: small,
-                },
-                SMALL,
-            )),
-            title: (
-                Rect {
-                    x: 0,
-                    y: top_h + small,
-                    w,
-                    h: small,
-                },
-                SMALL,
-            ),
-            progress: Rect {
-                x: 0,
-                y: h - 1,
-                w,
-                h: 1,
-            },
+            time: Some(Rect {
+                x: half + 2,
+                y: STATUS_H + 1,
+                w: w - half - 2,
+                h: top_h - STATUS_H - 1,
+            }),
+            album: None,
+            artist: Some(row(0, top_h, w, SMALL)),
+            title: Some(row(0, top_h + small, w, SMALL)),
+            progress,
         };
     }
-    // Tall: stacked. The title takes the medium face when the height allows.
+    // Tall: stacked. The title takes the medium face and the album its
+    // row when the height allows; under 120 rows the meter keeps the room.
     let title_font = if h >= 120 { MEDIUM } else { SMALL };
-    let clock_h = MEDIUM.line_height as i32;
-    let fixed = STATUS_H + clock_h + small + title_font.line_height as i32 + 2;
-    let gaps = 4;
-    let bars_h = h - fixed - gaps * 2;
+    let with_album = h >= 120;
+    let gaps = 3;
+    let fixed = STATUS_H
+        + small
+        + if with_album { small } else { 0 }
+        + small
+        + title_font.line_height as i32
+        + gaps * 2;
+    let meter_h = body_h - fixed;
     let mut y = 0;
-    let bars = Rect {
+    let meter = Rect {
         x: 0,
         y,
         w,
-        h: bars_h,
+        h: meter_h,
     };
-    y += bars_h + gaps;
+    y += meter_h + gaps;
     let status = Rect {
         x: 0,
         y,
@@ -217,46 +306,51 @@ pub fn layout(w: i32, h: i32) -> Layout {
         h: STATUS_H,
     };
     y += STATUS_H;
-    let clock = Rect {
-        x: 0,
-        y,
-        w,
-        h: clock_h,
-    };
-    y += clock_h + gaps;
-    let artist = Rect {
+    let time = Rect {
         x: 0,
         y,
         w,
         h: small,
     };
-    y += small;
-    let title = Rect {
-        x: 0,
-        y,
-        w,
-        h: title_font.line_height as i32,
+    y += small + gaps;
+    let album = if with_album {
+        let r = row(0, y, w, SMALL);
+        y += small;
+        Some(r)
+    } else {
+        None
     };
+    let artist = row(0, y, w, SMALL);
+    y += small;
+    let title = row(0, y, w, title_font);
     Layout {
-        bars,
+        meter: Some(meter),
         status: Some(status),
-        clock: Some((clock, MEDIUM)),
-        artist: Some((artist, SMALL)),
-        title: (title, title_font),
-        progress: Rect {
-            x: 0,
-            y: h - 2,
-            w,
-            h: 2,
-        },
+        time: Some(time),
+        album,
+        artist: Some(artist),
+        title: Some(title),
+        progress,
     }
 }
 
-/// How many bars the playing page shows on a panel: three pixels and a
-/// gap each across the bars' box.
-pub fn bar_count(width: u16, height: u16) -> usize {
-    let bars = layout(width as i32, height as i32).bars;
-    ((bars.w as usize + 1) / 4).clamp(4, 64)
+/// How many bars the spectrum shows on a panel: three pixels and a gap
+/// each across the meter's box, for the face chosen.
+pub fn bar_count(width: u16, height: u16, face: Face) -> usize {
+    let meter = layout(width as i32, height as i32, face)
+        .meter
+        .unwrap_or(Rect {
+            x: 0,
+            y: 0,
+            w: width as i32,
+            h: 0,
+        });
+    let w = match face {
+        // The level bars take a third beside the spectrum on a wide box.
+        Face::SpectrumVu if meter.w >= 2 * meter.h => meter.w - meter.w / 3 - 3,
+        _ => meter.w,
+    };
+    ((w as usize + 1) / 4).clamp(4, 64)
 }
 
 // -----------------------------------------------------------------------------
@@ -353,6 +447,54 @@ pub fn lines(canvas: &mut Canvas, rows: &[String]) {
     }
 }
 
+/// The time row of the playing page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TimeDisplay {
+    #[default]
+    ElapsedTotal,
+    Elapsed,
+    Remaining,
+    Off,
+}
+
+impl TimeDisplay {
+    pub fn from_setting(value: &str) -> TimeDisplay {
+        match value {
+            "elapsed" => TimeDisplay::Elapsed,
+            "remaining" => TimeDisplay::Remaining,
+            "off" => TimeDisplay::Off,
+            _ => TimeDisplay::ElapsedTotal,
+        }
+    }
+}
+
+/// The user's choices for the pages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Look {
+    pub face: Face,
+    pub time: TimeDisplay,
+    /// The sample rate and bit depth in the status row.
+    pub show_format: bool,
+    /// Peak marks on the meters.
+    pub peaks: bool,
+    /// Decibels added to the meters, for quiet or loud masters.
+    pub gain_db: i32,
+    pub show_ip: bool,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look {
+            face: Face::Spectrum,
+            time: TimeDisplay::ElapsedTotal,
+            show_format: true,
+            peaks: true,
+            gain_db: 0,
+            show_ip: true,
+        }
+    }
+}
+
 /// Everything the playing page draws from.
 pub struct View<'a> {
     pub track: &'a Track,
@@ -361,11 +503,38 @@ pub struct View<'a> {
     pub blind: bool,
     /// Into the track, in seconds, as the daemon counts it between states.
     pub elapsed_s: i64,
-    pub clock: (u32, u32),
     pub net: &'a Net,
+    pub look: &'a Look,
+    pub album: &'a Marquee,
     pub artist: &'a Marquee,
     pub title: &'a Marquee,
     pub now: Instant,
+}
+
+/// Seconds as m:ss, or h:mm:ss past the hour.
+pub fn clock_text(seconds: i64) -> String {
+    let s = seconds.max(0);
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, (s % 3600) / 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
+}
+
+/// The time row as the user chose it; empty when off.
+fn time_text(look: &Look, elapsed_s: i64, duration_s: i64) -> String {
+    match look.time {
+        TimeDisplay::Off => String::new(),
+        TimeDisplay::Elapsed => clock_text(elapsed_s),
+        TimeDisplay::Remaining if duration_s > 0 => {
+            format!("-{}", clock_text(duration_s - elapsed_s))
+        }
+        TimeDisplay::Remaining => clock_text(elapsed_s),
+        TimeDisplay::ElapsedTotal if duration_s > 0 => {
+            format!("{} / {}", clock_text(elapsed_s), clock_text(duration_s))
+        }
+        TimeDisplay::ElapsedTotal => clock_text(elapsed_s),
+    }
 }
 
 /// The now-playing page.
@@ -374,56 +543,170 @@ pub fn playing(canvas: &mut Canvas, view: &View) {
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
     let pal = palette(canvas.format());
-    let lay = layout(w, h);
+    let lay = layout(w, h, view.look.face);
 
-    // The bars, or the reason there are none.
-    if view.blind {
-        let note = "no audio tap";
-        let font = font_that_fits(lay.bars.h as u16 * 2, lay.bars.w - 2, std::iter::once(note));
-        let fitted = font.fit(note, lay.bars.w - 2);
-        canvas.text_centred(
-            font,
-            lay.bars.x,
-            lay.bars.y + (lay.bars.h - font.line_height as i32).max(0) / 2,
-            lay.bars.w,
-            &fitted,
-            pal.detail,
-        );
-    } else if view.bars.levels().iter().all(|&l| l == 0.0) && view.bars.peak_level() > 0.0 {
-        // One-bit audio has no bank: the level alone is drawn, as one wide bar.
-        draw_level(canvas, lay.bars, view.bars, &pal);
-    } else {
-        draw_bars(canvas, lay.bars, view.bars, &pal);
+    // The meter, or the reason there is none.
+    if let Some(meter) = lay.meter {
+        if view.blind {
+            let note = "no audio tap";
+            let font = font_that_fits(meter.h as u16 * 2, meter.w - 2, std::iter::once(note));
+            let fitted = font.fit(note, meter.w - 2);
+            canvas.text_centred(
+                font,
+                meter.x,
+                meter.y + (meter.h - font.line_height as i32).max(0) / 2,
+                meter.w,
+                &fitted,
+                pal.detail,
+            );
+        } else {
+            draw_meter(canvas, meter, view, &pal);
+        }
     }
 
     if let Some(status) = lay.status {
         draw_status(canvas, status, view, &pal);
     }
-    if let Some((rect, font)) = lay.clock {
-        let text = format!("{:02}:{:02}", view.clock.0, view.clock.1);
-        let y = rect.y + (rect.h - font.line_height as i32) / 2;
-        canvas.text_centred(font, rect.x, y, rect.w, &text, pal.title);
+    if let Some(rect) = lay.time {
+        let text = time_text(view.look, view.elapsed_s, view.track.duration);
+        let fitted = SMALL.fit(&text, rect.w - 2);
+        // Centred where the row is its own; left-aligned beside the status.
+        if lay.status.is_some_and(|s| s.y == rect.y) {
+            canvas.text(SMALL, rect.x + 1, rect.y, &fitted, pal.detail);
+        } else {
+            canvas.text_centred(SMALL, rect.x, rect.y, rect.w, &fitted, pal.detail);
+        }
+    }
+    if let Some((rect, font)) = lay.album {
+        draw_marquee(canvas, font, rect, view.album, view.now, pal.detail);
     }
     if let Some((rect, font)) = lay.artist {
         draw_marquee(canvas, font, rect, view.artist, view.now, pal.detail);
     }
-    let (rect, font) = lay.title;
-    if view.title.text().is_empty() {
-        canvas.text(font, rect.x + 1, rect.y, "Playing", pal.title);
-    } else {
-        draw_marquee(canvas, font, rect, view.title, view.now, pal.title);
+    if let Some((rect, font)) = lay.title {
+        if view.title.text().is_empty() {
+            canvas.text(font, rect.x + 1, rect.y, "Playing", pal.title);
+        } else {
+            draw_marquee(canvas, font, rect, view.title, view.now, pal.title);
+        }
     }
 
-    if view.track.duration > 0 {
-        let done = (lay.progress.w as i64 * view.elapsed_s.clamp(0, view.track.duration)
-            / view.track.duration) as i32;
-        canvas.fill_rect(
-            lay.progress.x,
-            lay.progress.y,
-            done,
-            lay.progress.h,
-            pal.progress,
-        );
+    if let Some(progress) = lay.progress {
+        if view.track.duration > 0 {
+            let done = (progress.w as i64 * view.elapsed_s.clamp(0, view.track.duration)
+                / view.track.duration) as i32;
+            canvas.fill_rect(progress.x, progress.y, done, progress.h, pal.progress);
+        }
+    }
+}
+
+/// The meter the face asks for, in its box. One-bit audio has no bank,
+/// so a spectrum falls back on the level.
+fn draw_meter(canvas: &mut Canvas, r: Rect, view: &View, pal: &Palette) {
+    let bars = view.bars;
+    let one_bit = bars.levels().iter().all(|&l| l == 0.0) && bars.peak_level() > 0.0;
+    let peaks = view.look.peaks;
+    match view.look.face {
+        Face::Text => {}
+        Face::Vu => draw_vu(canvas, r, bars, peaks, pal),
+        _ if one_bit => draw_level(canvas, r, bars, pal),
+        Face::Spectrum | Face::MeterOnly => draw_bars(canvas, r, bars, peaks, pal),
+        Face::SpectrumStereo => draw_bars_stereo(canvas, r, bars, peaks, pal),
+        Face::SpectrumVu => {
+            // The level bars take the right third, or the lower third on a narrow box.
+            if r.w >= 2 * r.h {
+                let vu_w = r.w / 3;
+                draw_bars(
+                    canvas,
+                    Rect {
+                        w: r.w - vu_w - 3,
+                        ..r
+                    },
+                    bars,
+                    peaks,
+                    pal,
+                );
+                draw_vu(
+                    canvas,
+                    Rect {
+                        x: r.x + r.w - vu_w,
+                        w: vu_w,
+                        ..r
+                    },
+                    bars,
+                    peaks,
+                    pal,
+                );
+            } else {
+                let vu_h = (r.h / 3).max(12);
+                draw_bars(
+                    canvas,
+                    Rect {
+                        h: r.h - vu_h - 2,
+                        ..r
+                    },
+                    bars,
+                    peaks,
+                    pal,
+                );
+                draw_vu(
+                    canvas,
+                    Rect {
+                        y: r.y + r.h - vu_h,
+                        h: vu_h,
+                        ..r
+                    },
+                    bars,
+                    peaks,
+                    pal,
+                );
+            }
+        }
+    }
+}
+
+/// The spectrum per channel: the left channel's bars rise from the middle
+/// line, the right channel's hang from it, the same band under each other.
+fn draw_bars_stereo(canvas: &mut Canvas, r: Rect, bars: &Bars, peaks: bool, pal: &Palette) {
+    let n = bars.count() as i32;
+    if n == 0 || r.w < n || r.h < 6 {
+        return;
+    }
+    let pitch = r.w / n;
+    let bar_w = (pitch - 1).max(1);
+    let left = r.x + (r.w - pitch * n) / 2;
+    let half = (r.h - 1) / 2;
+    let mid = r.y + half;
+    canvas.hline(r.x, mid, r.w, pal.detail);
+    for i in 0..n as usize {
+        let bx = left + i as i32 * pitch;
+        let split = half * 7 / 10;
+        // Left: upwards from the middle.
+        let lit = (bars.levels_ch(0)[i] * half as f32).round() as i32;
+        if lit > 0 {
+            let low = lit.min(split);
+            canvas.fill_rect(bx, mid - low, bar_w, low, pal.bar_low);
+            if lit > split {
+                canvas.fill_rect(bx, mid - lit, bar_w, lit - split, pal.bar_high);
+            }
+        }
+        let mark = (bars.peaks_ch(0)[i] * half as f32).round() as i32;
+        if peaks && mark > lit && mark > 0 {
+            canvas.fill_rect(bx, mid - mark, bar_w, 1, pal.peak);
+        }
+        // Right: downwards from the middle.
+        let lit = (bars.levels_ch(1)[i] * half as f32).round() as i32;
+        if lit > 0 {
+            let low = lit.min(split);
+            canvas.fill_rect(bx, mid + 1, bar_w, low, pal.bar_low);
+            if lit > split {
+                canvas.fill_rect(bx, mid + 1 + split, bar_w, lit - split, pal.bar_high);
+            }
+        }
+        let mark = (bars.peaks_ch(1)[i] * half as f32).round() as i32;
+        if peaks && mark > lit && mark > 0 {
+            canvas.fill_rect(bx, mid + mark, bar_w, 1, pal.peak);
+        }
     }
 }
 
@@ -447,7 +730,11 @@ fn draw_status(canvas: &mut Canvas, rect: Rect, view: &View, pal: &Palette) {
         pal.detail,
     );
     let room = right - 3 - rect.x;
-    let text = format_text(view.track, room);
+    let text = if view.look.show_format {
+        format_text(view.track, room)
+    } else {
+        String::new()
+    };
     canvas.set_clip(rect.x, rect.y, room, rect.h);
     canvas.text(SMALL, rect.x, rect.y, &text, pal.detail);
     canvas.clear_clip();
@@ -529,17 +816,56 @@ fn draw_connection(canvas: &mut Canvas, x: i32, y: i32, connection: Connection, 
 fn draw_level(canvas: &mut Canvas, r: Rect, bars: &Bars, pal: &Palette) {
     let bar_h = (r.h / 3).clamp(2, 12);
     let top = r.y + (r.h - bar_h) / 2;
-    let rms = (crate::meter::height(bars.rms_level()) * r.w as f32).round() as i32;
-    let peak = (crate::meter::height(bars.peak_level()) * r.w as f32).round() as i32;
+    let rms = (bars.height(bars.rms_level()) * r.w as f32).round() as i32;
+    let peak = (bars.height(bars.peak_level()) * r.w as f32).round() as i32;
     canvas.fill_rect(r.x, top, rms, bar_h, pal.bar_low);
     if peak > rms {
         canvas.fill_rect(r.x + peak - 1, top, 1, bar_h, pal.peak);
     }
 }
 
+/// Left and right as two horizontal bars with their letters: the RMS
+/// filled, the peak a mark, the top tenth in the high colour. A box too
+/// low for the letters shows the two bars alone.
+fn draw_vu(canvas: &mut Canvas, r: Rect, bars: &Bars, peaks: bool, pal: &Palette) {
+    let row_h = r.h / 2;
+    let lettered = row_h >= SMALL.line_height as i32 - 3;
+    let label_w = if lettered { SMALL.width("R") + 3 } else { 0 };
+    let bar_x = r.x + label_w;
+    let bar_w = r.w - label_w;
+    let bar_h = (row_h - if lettered { 4 } else { 2 }).clamp(2, 12);
+    let rms = bars.rms_lr();
+    let peak = bars.peak_lr();
+    for (ch, letter) in ["L", "R"].iter().enumerate() {
+        let row_y = r.y + ch as i32 * row_h;
+        let top = row_y + (row_h - bar_h) / 2;
+        if lettered {
+            canvas.text(
+                SMALL,
+                r.x,
+                row_y + (row_h - SMALL.line_height as i32) / 2,
+                letter,
+                pal.detail,
+            );
+        }
+        let filled = (rms[ch] * bar_w as f32).round() as i32;
+        let split = bar_w * 8 / 10;
+        canvas.fill_rect(bar_x, top, filled.min(split), bar_h, pal.bar_low);
+        if filled > split {
+            canvas.fill_rect(bar_x + split, top, filled - split, bar_h, pal.bar_high);
+        }
+        let mark = (peak[ch] * bar_w as f32).round() as i32;
+        if peaks && mark > filled && mark > 0 {
+            canvas.fill_rect(bar_x + mark - 1, top, 1, bar_h, pal.peak);
+        }
+        // A faint scale line under each bar.
+        canvas.hline(bar_x, top + bar_h, bar_w, pal.detail);
+    }
+}
+
 /// The bars in a box: each `levels[i]` a column from the bottom, the peak
 /// mark a line above it, a one-pixel gap between bars.
-fn draw_bars(canvas: &mut Canvas, r: Rect, bars: &Bars, pal: &Palette) {
+fn draw_bars(canvas: &mut Canvas, r: Rect, bars: &Bars, peaks: bool, pal: &Palette) {
     let n = bars.count() as i32;
     if n == 0 || r.w < n {
         return;
@@ -559,7 +885,7 @@ fn draw_bars(canvas: &mut Canvas, r: Rect, bars: &Bars, pal: &Palette) {
             }
         }
         let mark = (peak * r.h as f32).round() as i32;
-        if mark > 0 && mark > lit {
+        if peaks && mark > 0 && mark > lit {
             canvas.fill_rect(bx, r.y + r.h - mark, bar_w, 1, pal.peak);
         }
     }
@@ -567,45 +893,55 @@ fn draw_bars(canvas: &mut Canvas, r: Rect, bars: &Bars, pal: &Palette) {
 
 /// The standby page: the address and the connection along the top, the
 /// time as large as the panel allows, the date below; a strip shows the
-/// time alone.
-pub fn standby(canvas: &mut Canvas, clock: (u32, u32), date: &str, net: &Net) {
+/// time alone. `clock` and `date` come formatted, as the user chose.
+pub fn standby(canvas: &mut Canvas, clock: &str, date: &str, net: &Net, look: &Look) {
     canvas.clear();
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
-    let text = format!("{:02}:{:02}", clock.0, clock.1);
     let pal = palette(canvas.format());
     if h < 40 {
         let y = (h - MEDIUM.line_height as i32) / 2;
-        canvas.text_centred(MEDIUM, 0, y, w, &text, pal.title);
+        canvas.text_centred(MEDIUM, 0, y, w, clock, pal.title);
         return;
     }
     let small = SMALL.line_height as i32;
-    if !net.ip.is_empty() {
+    if look.show_ip && !net.ip.is_empty() {
         canvas.text(SMALL, 1, 0, &net.ip, pal.detail);
     }
     if net.connection != Connection::None {
         draw_connection(canvas, w - 13, 3, net.connection, pal.detail);
     }
-    // The face and its pixel doubling by what is left between the rows.
+    // The face and its pixel doubling by what is left between the rows,
+    // stepping down when the text (a 12-hour clock with its am/pm) is wide.
     let room = h - 2 * small;
-    let (font, scale) = if room >= 62 {
-        (LARGE, 2)
-    } else if room >= 32 {
-        (LARGE, 1)
-    } else {
-        (MEDIUM, 1)
-    };
-    let text_w = font.width(&text) * scale;
+    let mut choices: Vec<(&Font, i32)> = Vec::new();
+    if room >= 62 {
+        choices.push((LARGE, 2));
+    }
+    if room >= 32 {
+        choices.push((LARGE, 1));
+    }
+    choices.push((MEDIUM, 1));
+    let (font, scale) = choices
+        .iter()
+        .copied()
+        .find(|(f, s)| f.width(clock) * s <= w - 2)
+        .unwrap_or((MEDIUM, 1));
+    let text_w = font.width(clock) * scale;
     let text_h = font.line_height as i32 * scale;
     canvas.text_scaled(
         font,
         (w - text_w) / 2,
         small + (room - text_h) / 2,
-        &text,
+        clock,
         pal.title,
         scale,
     );
-    let date_font = if h >= 120 { MEDIUM } else { SMALL };
+    let date_font = if h >= 120 && MEDIUM.width(date) <= w - 2 {
+        MEDIUM
+    } else {
+        SMALL
+    };
     let fitted = date_font.fit(date, w - 2);
     canvas.text_centred(
         date_font,
@@ -621,35 +957,48 @@ pub fn standby(canvas: &mut Canvas, clock: (u32, u32), date: &str, net: &Net) {
 // Time
 // -----------------------------------------------------------------------------
 
-fn local_tm() -> libc::tm {
+/// The clock and date formats offered, `strftime` patterns as lcd1602-vumeter
+/// offers them; anything else from the store falls back to the first.
+pub const CLOCK_FORMATS: &[&str] = &["%H:%M", "%H:%M:%S", "%I:%M %p", "%l:%M %p", "%I:%M:%S %p"];
+pub const DATE_FORMATS: &[&str] = &[
+    "%a %d %b",
+    "%A %d %B",
+    "%a %d %b %Y",
+    "%d.%m.%Y",
+    "%d/%m/%Y",
+    "%m/%d/%Y",
+    "%Y-%m-%d",
+    "%a %d.%m.",
+    "%A",
+];
+
+/// The local time through `strftime` in the C locale: English names,
+/// the player's time zone. `%p` comes back lower-case, as a panel reads
+/// better with "8:45 pm".
+pub fn local_strftime(format: &str) -> String {
     let now = unsafe { libc::time(std::ptr::null_mut()) };
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     unsafe {
         libc::localtime_r(&now, &mut tm);
     }
-    tm
-}
-
-/// The local hour and minute, through the C library's time zone handling.
-pub fn local_time() -> (u32, u32) {
-    let tm = local_tm();
-    (tm.tm_hour as u32, tm.tm_min as u32)
-}
-
-/// Today as "Thu 16 Oct 2026", in English.
-pub fn local_date() -> String {
-    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let tm = local_tm();
-    format!(
-        "{} {} {} {}",
-        DAYS[(tm.tm_wday.clamp(0, 6)) as usize],
-        tm.tm_mday,
-        MONTHS[(tm.tm_mon.clamp(0, 11)) as usize],
-        1900 + tm.tm_year
-    )
+    let Ok(cformat) = std::ffi::CString::new(format) else {
+        return String::new();
+    };
+    let mut buf = [0u8; 96];
+    let n = unsafe {
+        libc::strftime(
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.len(),
+            cformat.as_ptr(),
+            &tm,
+        )
+    };
+    let text = String::from_utf8_lossy(&buf[..n]).trim().to_string();
+    if format.contains("%p") {
+        text.replace("AM", "am").replace("PM", "pm")
+    } else {
+        text
+    }
 }
 
 extern "C" {
@@ -679,8 +1028,8 @@ mod tests {
         track: &'a Track,
         bars: &'a Bars,
         net: &'a Net,
-        artist: &'a Marquee,
-        title: &'a Marquee,
+        look: &'a Look,
+        rows: &'a (Marquee, Marquee, Marquee),
         blind: bool,
     ) -> View<'a> {
         View {
@@ -688,10 +1037,11 @@ mod tests {
             bars,
             blind,
             elapsed_s: 83,
-            clock: (20, 45),
             net,
-            artist,
-            title,
+            look,
+            album: &rows.0,
+            artist: &rows.1,
+            title: &rows.2,
             now: Instant::now(),
         }
     }
@@ -701,33 +1051,46 @@ mod tests {
         assert_eq!(font_for(32).line_height, 15);
         assert_eq!(font_for(64).line_height, 20);
         assert_eq!(font_for(128).line_height, 30);
-        // The 64-row panel halves: bars left, 15 of them on a 128 wide panel.
-        let l = layout(128, 64);
+        // The 64-row panel halves: meter left, 15 bars on a 128 wide panel.
+        let l = layout(128, 64, Face::Spectrum);
         assert_eq!(
-            l.bars,
-            Rect {
+            l.meter,
+            Some(Rect {
                 x: 0,
                 y: 0,
                 w: 62,
                 h: 32
-            }
+            })
         );
-        assert!(l.status.is_some() && l.clock.is_some() && l.artist.is_some());
-        assert_eq!(l.progress.y, 63);
-        assert_eq!(bar_count(128, 64), 15);
-        assert_eq!(bar_count(256, 64), 31);
-        // A strip has no status line or clock; the bars take the width.
-        let l = layout(128, 32);
-        assert!(l.status.is_none() && l.clock.is_none() && l.artist.is_none());
-        assert_eq!(bar_count(128, 32), 32);
+        assert!(l.status.is_some() && l.time.is_some() && l.artist.is_some());
+        assert_eq!(l.progress.unwrap().y, 63);
+        assert_eq!(bar_count(128, 64, Face::Spectrum), 15);
+        assert_eq!(bar_count(256, 64, Face::Spectrum), 31);
+        // A strip has no status line or time; the meter takes the width.
+        let l = layout(128, 32, Face::Spectrum);
+        assert!(l.status.is_none() && l.time.is_none() && l.artist.is_none());
+        assert_eq!(bar_count(128, 32, Face::Spectrum), 32);
         // A tall panel stacks everything and the title grows.
-        let l = layout(128, 128);
-        assert_eq!(l.bars.w, 128);
-        assert_eq!(l.title.1.line_height, 20);
-        assert!(l.title.0.y + l.title.0.h <= l.progress.y, "{l:?}");
-        let l = layout(128, 96);
-        assert!(l.bars.h >= 20, "{l:?}");
-        assert!(l.title.0.y + l.title.0.h <= l.progress.y, "{l:?}");
+        let l = layout(128, 128, Face::Spectrum);
+        assert_eq!(l.meter.unwrap().w, 128);
+        let (title, font) = l.title.unwrap();
+        assert_eq!(font.line_height, 20);
+        assert!(title.y + title.h <= l.progress.unwrap().y, "{l:?}");
+        let l = layout(128, 96, Face::Spectrum);
+        assert!(l.meter.unwrap().h >= 20, "{l:?}");
+        let (title, _) = l.title.unwrap();
+        assert!(title.y + title.h <= l.progress.unwrap().y, "{l:?}");
+        // The text face has no meter and a larger title; the meter face the reverse.
+        let l = layout(128, 64, Face::Text);
+        assert!(l.meter.is_none());
+        assert_eq!(l.title.unwrap().1.line_height, 20);
+        assert!(l.time.is_some() && l.status.is_some());
+        let l = layout(128, 64, Face::MeterOnly);
+        assert!(l.title.is_none() && l.status.is_none());
+        assert_eq!(l.meter.unwrap().h, 62);
+        assert_eq!(bar_count(128, 64, Face::MeterOnly), 32);
+        // The level bars beside the spectrum leave fewer bars.
+        assert!(bar_count(256, 64, Face::SpectrumVu) < bar_count(256, 64, Face::Spectrum));
     }
 
     #[test]
@@ -772,7 +1135,7 @@ mod tests {
 
     #[test]
     fn the_playing_page_has_its_parts() {
-        let mut bars = Bars::new(bar_count(128, 64));
+        let mut bars = Bars::new(bar_count(128, 64, Face::Spectrum));
         let frame = justoled::ring::Frame {
             spectrum: [vec![1.0; 64], vec![1.0; 64]],
             hold: [vec![1.0; 64], vec![1.0; 64]],
@@ -782,6 +1145,7 @@ mod tests {
         let track = Track {
             title: "A Song".into(),
             artist: "Someone".into(),
+            album: "The Album".into(),
             samplerate: "44.1 kHz".into(),
             bitdepth: "16 bit".into(),
             volume: 50,
@@ -792,29 +1156,58 @@ mod tests {
             connection: Connection::Wifi(3),
             ip: "192.168.1.9".into(),
         };
-        let (mut artist, mut title) = (Marquee::default(), Marquee::default());
+        let look = Look::default();
+        let mut rows = (Marquee::default(), Marquee::default(), Marquee::default());
         let now = Instant::now();
-        artist.set(&track.artist, now);
-        title.set(&track.title, now);
+        rows.0.set(&track.album, now);
+        rows.1.set(&track.artist, now);
+        rows.2.set(&track.title, now);
         let mut c = Canvas::new(Format::Rgb565, 128, 64);
-        playing(&mut c, &view(&track, &bars, &net, &artist, &title, false));
+        playing(&mut c, &view(&track, &bars, &net, &look, &rows, false));
         // Full bars reach the bottom of their box, on the left half only.
         assert_ne!(c.get(1, 31), Colour::BLACK);
-        assert_eq!(c.get(1, 32), Colour::BLACK, "under the bars box");
+        assert_eq!(c.get(1, 32), Colour::BLACK, "under the meter box");
         // The progress line: 83 of 200 seconds is 53 of 128 pixels.
         assert_ne!(c.get(50, 63), Colour::BLACK);
         assert_eq!(c.get(60, 63), Colour::BLACK);
         // Something in the status row's right end: the icons.
         assert!((116..128).any(|x| (0..8).any(|y| c.get(x, y) != Colour::BLACK)));
-        // And the clock in the right half.
+        // And the time in the right half.
         assert!((66..126).any(|x| (14..32).any(|y| c.get(x, y) != Colour::BLACK)));
 
         let mut c = Canvas::new(Format::Paged1, 128, 32);
-        playing(&mut c, &view(&track, &bars, &net, &artist, &title, true));
+        playing(&mut c, &view(&track, &bars, &net, &look, &rows, true));
         assert!(
             lit_rows(&c).iter().any(|&y| y > 16),
             "the blind note is drawn"
         );
+
+        // Every face draws without panic on every class, and the text face
+        // leaves the meter's rows to the words.
+        for face in [
+            Face::Spectrum,
+            Face::SpectrumStereo,
+            Face::SpectrumVu,
+            Face::Vu,
+            Face::Text,
+            Face::MeterOnly,
+        ] {
+            let look = Look {
+                face,
+                ..Look::default()
+            };
+            for (fmt, w, h) in [
+                (Format::Paged1, 128u16, 32u16),
+                (Format::Paged1, 128, 64),
+                (Format::Grey4, 256, 64),
+                (Format::Rgb565, 96, 64),
+                (Format::Rgb565, 128, 128),
+            ] {
+                let mut c = Canvas::new(fmt, w, h);
+                playing(&mut c, &view(&track, &bars, &net, &look, &rows, false));
+                assert!(!lit_rows(&c).is_empty(), "{face:?} {w}x{h}");
+            }
+        }
 
         let mut dsd = Bars::new(32);
         dsd.feed(
@@ -827,11 +1220,25 @@ mod tests {
             Duration::from_millis(50),
         );
         let mut c = Canvas::new(Format::Paged1, 128, 32);
-        playing(&mut c, &view(&track, &dsd, &net, &artist, &title, false));
+        playing(&mut c, &view(&track, &dsd, &net, &look, &rows, false));
         assert!(
             lit_rows(&c).iter().any(|&y| (16..30).contains(&y)),
             "the level bar is drawn"
         );
+    }
+
+    #[test]
+    fn the_time_row_follows_the_choice() {
+        let mut look = Look::default();
+        assert_eq!(time_text(&look, 83, 200), "1:23 / 3:20");
+        look.time = TimeDisplay::Elapsed;
+        assert_eq!(time_text(&look, 83, 200), "1:23");
+        look.time = TimeDisplay::Remaining;
+        assert_eq!(time_text(&look, 83, 200), "-1:57");
+        assert_eq!(time_text(&look, 83, 0), "1:23", "a stream has no end");
+        look.time = TimeDisplay::Off;
+        assert_eq!(time_text(&look, 83, 200), "");
+        assert_eq!(clock_text(3725), "1:02:05");
     }
 
     #[test]
@@ -857,16 +1264,33 @@ mod tests {
             connection: Connection::Ethernet,
             ip: "10.0.0.5".into(),
         };
+        let look = Look::default();
         let mut c = Canvas::new(Format::Grey4, 256, 64);
-        standby(&mut c, (9, 5), "Thu 16 Oct 2026", &net);
+        standby(&mut c, "9:05", "Thu 16 Oct 2026", &net, &look);
         let rows = lit_rows(&c);
         assert!(rows.iter().any(|&y| y < 12), "address row");
         assert!(rows.iter().any(|&y| y > 50), "date row");
         let mut c = Canvas::new(Format::Paged1, 128, 32);
-        standby(&mut c, (9, 5), "Thu 16 Oct 2026", &net);
+        standby(&mut c, "20:45:30", "Thu 16 Oct 2026", &net, &look);
         assert!(!lit_rows(&c).is_empty());
-        let (h, m) = local_time();
-        assert!(h < 24 && m < 60);
-        assert!(local_date().len() >= 11);
+        // Without the address, the top left stays dark; the icon keeps its corner.
+        let quiet = Look {
+            show_ip: false,
+            ..Look::default()
+        };
+        let mut c = Canvas::new(Format::Grey4, 256, 64);
+        standby(&mut c, "9:05", "Thu 16 Oct 2026", &net, &quiet);
+        assert!(
+            !(0..200).any(|x| (0..12).any(|y| c.get(x, y) != Colour::BLACK)),
+            "no address row"
+        );
+        // strftime through the C library, in the player's zone.
+        tzset_now();
+        let clock = local_strftime("%H:%M");
+        assert_eq!(clock.len(), 5, "{clock}");
+        assert!(local_strftime("%a %d %b %Y").len() >= 11);
+        let half = local_strftime("%I:%M %p");
+        assert!(half.ends_with("am") || half.ends_with("pm"), "{half}");
+        assert!(CLOCK_FORMATS.contains(&"%H:%M") && DATE_FORMATS.contains(&"%A"));
     }
 }

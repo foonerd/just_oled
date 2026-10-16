@@ -15,18 +15,30 @@ pub const RELEASE_DB_PER_S: f32 = 90.0;
 pub const PEAK_HOLD: Duration = Duration::from_millis(800);
 /// How fast the peak mark falls after its hold, in decibels per second.
 pub const PEAK_FALL_DB_PER_S: f32 = 40.0;
+/// The gain the user may add or take, in decibels, for quiet or loud masters.
+pub const GAIN_DB_RANGE: i32 = 12;
 
 #[derive(Clone, Debug)]
 pub struct Bars {
-    /// Bar heights 0..=1.
+    /// Linear factor on every amplitude before the floor mapping.
+    gain: f32,
+    /// Bar heights 0..=1, the louder channel.
     level: Vec<f32>,
     /// Peak marks 0..=1.
     peak: Vec<f32>,
     /// Time since each peak was set.
     peak_age: Vec<Duration>,
+    /// The same per channel, for a stereo picture.
+    level_ch: [Vec<f32>; 2],
+    peak_ch: [Vec<f32>; 2],
+    peak_ch_age: [Vec<Duration>; 2],
     /// Peak and RMS of the louder channel, 0..=1.
     peak_level: f32,
     rms_level: f32,
+    /// Peak and RMS per channel, 0..=1, for the L and R meters.
+    peak_lr: [f32; 2],
+    rms_lr: [f32; 2],
+    peak_lr_age: [Duration; 2],
 }
 
 /// Linear amplitude to a 0..=1 height over `FLOOR_DB`.
@@ -41,16 +53,35 @@ pub fn height(amplitude: f32) -> f32 {
 impl Bars {
     pub fn new(count: usize) -> Bars {
         Bars {
+            gain: 1.0,
             level: vec![0.0; count],
             peak: vec![0.0; count],
             peak_age: vec![Duration::ZERO; count],
+            level_ch: [vec![0.0; count], vec![0.0; count]],
+            peak_ch: [vec![0.0; count], vec![0.0; count]],
+            peak_ch_age: [vec![Duration::ZERO; count], vec![Duration::ZERO; count]],
             peak_level: 0.0,
             rms_level: 0.0,
+            peak_lr: [0.0; 2],
+            rms_lr: [0.0; 2],
+            peak_lr_age: [Duration::ZERO; 2],
         }
     }
 
     pub fn count(&self) -> usize {
         self.level.len()
+    }
+
+    /// Gain in whole decibels, within `GAIN_DB_RANGE` either way.
+    pub fn with_gain_db(mut self, db: i32) -> Bars {
+        let db = db.clamp(-GAIN_DB_RANGE, GAIN_DB_RANGE);
+        self.gain = 10f32.powf(db as f32 / 20.0);
+        self
+    }
+
+    /// An amplitude to a bar height, through the gain.
+    pub fn height(&self, amplitude: f32) -> f32 {
+        height(amplitude * self.gain)
     }
 
     pub fn levels(&self) -> &[f32] {
@@ -59,6 +90,15 @@ impl Bars {
 
     pub fn peaks(&self) -> &[f32] {
         &self.peak
+    }
+
+    /// One channel's bar heights.
+    pub fn levels_ch(&self, ch: usize) -> &[f32] {
+        &self.level_ch[ch.min(1)]
+    }
+
+    pub fn peaks_ch(&self, ch: usize) -> &[f32] {
+        &self.peak_ch[ch.min(1)]
     }
 
     /// The louder channel's peak, 0..=1 of full scale.
@@ -70,10 +110,31 @@ impl Bars {
         self.rms_level
     }
 
+    /// Left and right RMS, 0..=1 of full scale, with the release applied.
+    pub fn rms_lr(&self) -> [f32; 2] {
+        self.rms_lr
+    }
+
+    /// Left and right peak marks, held then falling.
+    pub fn peak_lr(&self) -> [f32; 2] {
+        self.peak_lr
+    }
+
     /// A hop's bank into the bars: each bar takes the loudest band of its
     /// group, rising at once and never below where the release would put it.
     pub fn feed(&mut self, frame: &Frame, dt: Duration) {
         self.decay(dt);
+        for ch in 0..2 {
+            let rms = self.height(frame.rms[ch]);
+            let peak = self.height(frame.peak[ch]);
+            if rms > self.rms_lr[ch] {
+                self.rms_lr[ch] = rms;
+            }
+            if peak >= self.peak_lr[ch] {
+                self.peak_lr[ch] = peak;
+                self.peak_lr_age[ch] = Duration::ZERO;
+            }
+        }
         let bands = frame.spectrum[0].len().max(frame.spectrum[1].len());
         if bands == 0 {
             // One-bit audio: no bank; the level alone moves.
@@ -82,17 +143,27 @@ impl Bars {
             return;
         }
         let n = self.level.len();
-        for (i, level) in self.level.iter_mut().enumerate() {
+        for i in 0..n {
             let (from, to) = group(i, n, bands);
             let mut loudest = 0.0f32;
-            for ch in &frame.spectrum {
-                for &v in ch.get(from..to).unwrap_or(&[]) {
-                    loudest = loudest.max(v);
+            for ch in 0..2 {
+                let mut ch_loudest = 0.0f32;
+                for &v in frame.spectrum[ch].get(from..to).unwrap_or(&[]) {
+                    ch_loudest = ch_loudest.max(v);
                 }
+                let h = self.height(ch_loudest);
+                if h > self.level_ch[ch][i] {
+                    self.level_ch[ch][i] = h;
+                }
+                if h >= self.peak_ch[ch][i] {
+                    self.peak_ch[ch][i] = h;
+                    self.peak_ch_age[ch][i] = Duration::ZERO;
+                }
+                loudest = loudest.max(ch_loudest);
             }
-            let h = height(loudest);
-            if h > *level {
-                *level = h;
+            let h = self.height(loudest);
+            if h > self.level[i] {
+                self.level[i] = h;
             }
             if h >= self.peak[i] {
                 self.peak[i] = h;
@@ -118,18 +189,47 @@ impl Bars {
                 *peak = (*peak - peak_fall).max(0.0);
             }
         }
+        for ch in 0..2 {
+            for level in &mut self.level_ch[ch] {
+                *level = (*level - fall).max(0.0);
+            }
+            for (peak, age) in self.peak_ch[ch]
+                .iter_mut()
+                .zip(self.peak_ch_age[ch].iter_mut())
+            {
+                *age += dt;
+                if *age > PEAK_HOLD {
+                    *peak = (*peak - peak_fall).max(0.0);
+                }
+            }
+        }
         // Levels fall like the bars do; a fresh hop lifts them again.
         let linear_fall = 1.0 - (-3.0 * s).exp();
         self.peak_level -= self.peak_level * linear_fall;
         self.rms_level -= self.rms_level * linear_fall;
+        for ch in 0..2 {
+            self.rms_lr[ch] = (self.rms_lr[ch] - fall).max(0.0);
+            self.peak_lr_age[ch] += dt;
+            if self.peak_lr_age[ch] > PEAK_HOLD {
+                self.peak_lr[ch] = (self.peak_lr[ch] - peak_fall).max(0.0);
+            }
+        }
     }
 
     pub fn reset(&mut self) {
         self.level.fill(0.0);
         self.peak.fill(0.0);
         self.peak_age.fill(Duration::ZERO);
+        for ch in 0..2 {
+            self.level_ch[ch].fill(0.0);
+            self.peak_ch[ch].fill(0.0);
+            self.peak_ch_age[ch].fill(Duration::ZERO);
+        }
         self.peak_level = 0.0;
         self.rms_level = 0.0;
+        self.peak_lr = [0.0; 2];
+        self.rms_lr = [0.0; 2];
+        self.peak_lr_age = [Duration::ZERO; 2];
     }
 }
 
@@ -157,6 +257,27 @@ mod tests {
             rms: [0.1, 0.2],
             ..Frame::default()
         }
+    }
+
+    #[test]
+    fn the_channels_are_kept_apart_and_folded() {
+        let mut bars = Bars::new(4);
+        let mut left = vec![0.0f32; 64];
+        left[5] = 1.0; // bar 0
+        let mut right = vec![0.0f32; 64];
+        right[60] = 0.1; // bar 3, -20 dB
+        let f = Frame {
+            spectrum: [left, right],
+            ..Frame::default()
+        };
+        bars.feed(&f, Duration::from_millis(50));
+        assert_eq!(bars.levels_ch(0)[0], 1.0);
+        assert_eq!(bars.levels_ch(1)[0], 0.0);
+        assert!((bars.levels_ch(1)[3] - 2.0 / 3.0).abs() < 1e-6);
+        assert_eq!(bars.levels()[0], 1.0, "folded takes the louder");
+        assert!((bars.levels()[3] - 2.0 / 3.0).abs() < 1e-6);
+        bars.reset();
+        assert!(bars.levels_ch(0).iter().all(|&l| l == 0.0));
     }
 
     #[test]
@@ -189,6 +310,9 @@ mod tests {
         assert_eq!(bars.peaks()[1], 1.0);
         assert!((bars.peak_level() - 0.5).abs() < 1e-6);
         assert!((bars.rms_level() - 0.2).abs() < 1e-6);
+        // Per channel, in decibels over the floor: 0.5 is -6 dB, 0.1 is -20 dB.
+        assert!((bars.peak_lr()[0] - height(0.5)).abs() < 1e-6);
+        assert!((bars.rms_lr()[1] - height(0.2)).abs() < 1e-6);
         // Half a second of silence: 45 dB down of 60, the peak still held.
         bars.decay(Duration::from_millis(500));
         assert!(
@@ -203,6 +327,33 @@ mod tests {
         assert_eq!(bars.levels()[1], 0.0);
         bars.reset();
         assert!(bars.peaks().iter().all(|&p| p == 0.0));
+    }
+
+    #[test]
+    fn the_gain_shifts_every_height_in_decibels_and_stops_at_the_range() {
+        let mut bands = vec![0.0f32; 64];
+        bands[20] = 0.5; // -6 dB
+        let mut plain = Bars::new(4);
+        plain.feed(&frame(&bands), Duration::from_millis(50));
+        assert!((plain.levels()[1] - 0.9).abs() < 1e-3);
+        // +6 dB lifts a -6 dB band to the top; the level meters follow.
+        let mut lifted = Bars::new(4).with_gain_db(6);
+        lifted.feed(&frame(&bands), Duration::from_millis(50));
+        assert!(
+            (lifted.levels()[1] - 1.0).abs() < 1e-3,
+            "{}",
+            lifted.levels()[1]
+        );
+        assert!((lifted.peak_lr()[0] - 1.0).abs() < 1e-3);
+        assert!((lifted.height(0.2) - height(0.4)).abs() < 1e-3);
+        // -12 dB puts the same band at -18 dB: 42 of 60.
+        let mut cut = Bars::new(4).with_gain_db(-12);
+        cut.feed(&frame(&bands), Duration::from_millis(50));
+        assert!((cut.levels()[1] - 0.7).abs() < 1e-3, "{}", cut.levels()[1]);
+        // Beyond the range is the range: 40 asks, 12 is given.
+        let wild = Bars::new(4).with_gain_db(40);
+        assert_eq!(wild.height(0.3), 1.0);
+        assert!((wild.height(0.1) - height(0.1 * 10f32.powf(0.6))).abs() < 1e-6);
     }
 
     #[test]
