@@ -10,8 +10,10 @@ SERVICE="just-oled"
 UNIT="/etc/systemd/system/$SERVICE.service"
 SUDOERS="/etc/sudoers.d/volumio-user-just_oled"
 USERCONFIG="/boot/userconfig.txt"
-MARK_BEGIN="# >>> just_oled"
-MARK_END="# <<< just_oled"
+# The installer's block: the buses enabled. The plugin keeps a block of its
+# own for a custom bus, under plain `# >>> just_oled` marks.
+MARK_BEGIN="# >>> just_oled install"
+MARK_END="# <<< just_oled install"
 
 # The binaries are chosen by the userland (armhf, arm64, amd64), not by the
 # image's label: the 32-bit Pi image runs under a 64-bit kernel.

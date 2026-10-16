@@ -127,7 +127,7 @@ console.log('every UI string is defined');
 JS
 
 echo "check: plugin"
-with_node --check plugin/index.js
+with_node --check plugin/index.js plugin/lib/boot.js
 with_node --test plugin/test/
 
 echo "check: clean"

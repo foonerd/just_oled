@@ -1,5 +1,3 @@
----
-
 ### Support this project
 
 Just OLED is free and open source, designed, built and maintained by one developer in his own time. If it has earned a place on your player, you can support its development:

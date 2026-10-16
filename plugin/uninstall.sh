@@ -10,8 +10,6 @@ SERVICE="just-oled"
 UNIT="/etc/systemd/system/$SERVICE.service"
 SUDOERS="/etc/sudoers.d/volumio-user-just_oled"
 USERCONFIG="/boot/userconfig.txt"
-MARK_BEGIN="# >>> just_oled"
-MARK_END="# <<< just_oled"
 
 systemctl stop "$SERVICE.service" 2>/dev/null || true
 systemctl disable "$SERVICE.service" 2>/dev/null || true
@@ -24,10 +22,15 @@ udevadm control --reload 2>/dev/null || true
 rm -f /tmp/just-oled.sock /dev/shm/justoled.*
 rm -f "$PLUGIN_DIR/alsa-lib/libjustoledtap.so"
 
-# The lines the plugin wrote into the boot configuration, between its marks.
-if [ -f "$USERCONFIG" ] && grep -q "^$MARK_BEGIN" "$USERCONFIG"; then
-  sed -i "/^$MARK_BEGIN/,/^$MARK_END/d" "$USERCONFIG"
-  echo "Removed the plugin's lines from $USERCONFIG"
+# The lines the installer and the plugin wrote into the boot configuration,
+# each between its own marks.
+if [ -f "$USERCONFIG" ]; then
+  for block in "just_oled install" "just_oled"; do
+    if grep -q "^# >>> $block\$" "$USERCONFIG"; then
+      sed -i "/^# >>> $block\$/,/^# <<< $block\$/d" "$USERCONFIG"
+      echo "Removed the $block lines from $USERCONFIG"
+    fi
+  done
 fi
 
 echo "Just OLED uninstalled"

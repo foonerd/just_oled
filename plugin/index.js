@@ -11,7 +11,9 @@ var path = require('path');
 var net = require('net');
 var exec = require('child_process').exec;
 var execFile = require('child_process').execFile;
+var execSync = require('child_process').execSync;
 var io = require('socket.io-client');
+var boot = require('./lib/boot');
 
 var CATEGORY = 'system_hardware';
 var NAME = 'just_oled';
@@ -25,11 +27,12 @@ var ASOUND_DIR = path.join(__dirname, 'asound');
 var ASOUND_CONF = path.join(ASOUND_DIR, 'JustOled.postJustOled.5.conf');
 var ASOUND_FILE = '/etc/asound.conf';
 var ASOUND_MARK = 'Just OLED section';
+var USERCONFIG = '/boot/userconfig.txt';
 var id = 'just_oled: ';
 
 // The keys each settings section saves, and how each is read from the form.
-var SELECTS = ['bus', 'panel', 'i2c_address', 'rotate'];
-var NUMBERS = ['i2c_bus', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset'];
+var SELECTS = ['connection', 'panel', 'i2c_address', 'rotate'];
+var NUMBERS = ['i2c_bus', 'i2c_sda', 'i2c_scl', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset'];
 var SWITCHES = ['show_lifecycle'];
 
 module.exports = JustOled;
@@ -346,20 +349,83 @@ JustOled.prototype.take = function (data, key) {
     }
 };
 
-JustOled.prototype.saveSection = function (data, keys) {
+JustOled.prototype.saveSection = function (data, keys, after) {
     var self = this;
     keys.forEach(function (key) { self.take(data, key); });
-    self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('JUSTOLED.PLUGIN_NAME'), self.commandRouter.getI18nString('JUSTOLED.SAVED'));
+    var name = self.commandRouter.getI18nString('JUSTOLED.PLUGIN_NAME');
+    var note = after ? after() : null;
+    self.commandRouter.pushToastMessage('success', name, note || self.commandRouter.getI18nString('JUSTOLED.SAVED'));
     self.reloadDaemon();
     return libQ.resolve();
 };
 
+// The wiring: a preset writes its pins over the stored ones, so the daemon
+// and the drawings read one set of keys whichever way they were chosen.
 JustOled.prototype.saveConnection = function (data) {
-    return this.saveSection(data, ['bus', 'panel', 'i2c_bus', 'i2c_address', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset', 'rotate']);
+    var self = this;
+    return self.saveSection(data, ['connection', 'panel', 'i2c_bus', 'i2c_sda', 'i2c_scl', 'i2c_address', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset', 'rotate'], function () {
+        var connection = self.config.get('connection');
+        var fixed = boot.preset(connection);
+        Object.keys(fixed).forEach(function (key) {
+            if (key !== 'bus') { self.config.set(key, fixed[key]); }
+        });
+        var result = self.applyBootConfig(connection, self.config.get('i2c_bus'), self.config.get('i2c_sda'), self.config.get('i2c_scl'));
+        if (result.error) {
+            return self.commandRouter.getI18nString('JUSTOLED.SAVE_FAILED').replace('{{error}}', result.error);
+        }
+        if (result.changed) {
+            self.askRestart();
+            return self.commandRouter.getI18nString('JUSTOLED.SAVED_RESTART');
+        }
+        return null;
+    });
 };
 
 JustOled.prototype.saveMessages = function (data) {
     return this.saveSection(data, ['show_lifecycle', 'text_boot', 'text_ready', 'text_pause', 'text_shutdown', 'text_reboot']);
+};
+
+// The lines for a custom I2C bus into /boot/userconfig.txt, through sudo
+// tee, which the installer allowed. Returns { changed, error }.
+JustOled.prototype.applyBootConfig = function (connection, bus, sda, scl) {
+    var self = this;
+    var current = '';
+    try {
+        current = fs.readFileSync(USERCONFIG, 'utf8');
+    } catch (e) {
+        if (e.code !== 'ENOENT') {
+            return { changed: false, error: e.message };
+        }
+        // No boot configuration on this machine (a PC): nothing to write, nothing needed.
+        if (!fs.existsSync('/boot/config.txt')) {
+            return { changed: false, error: null };
+        }
+    }
+    var next = boot.rewrite(current, boot.linesFor(connection, bus, sda, scl));
+    if (!next.changed) {
+        return { changed: false, error: null };
+    }
+    try {
+        execSync('/usr/bin/sudo /usr/bin/tee ' + USERCONFIG + ' > /dev/null', { input: next.content, uid: 1000, gid: 1000, encoding: 'utf8' });
+        self.logger.info(id + USERCONFIG + ' updated for ' + connection + ' bus ' + bus);
+        return { changed: true, error: null };
+    } catch (e) {
+        self.logger.error(id + USERCONFIG + ': ' + e.message);
+        return { changed: false, error: e.message };
+    }
+};
+
+JustOled.prototype.askRestart = function () {
+    var self = this;
+    self.commandRouter.broadcastMessage('openModal', {
+        title: self.commandRouter.getI18nString('JUSTOLED.RESTART_TITLE'),
+        message: self.commandRouter.getI18nString('JUSTOLED.SAVED_RESTART'),
+        size: 'lg',
+        buttons: [
+            { name: self.commandRouter.getI18nString('COMMON.RESTART'), class: 'btn btn-info', emit: 'reboot', payload: '' },
+            { name: self.commandRouter.getI18nString('COMMON.CONTINUE'), class: 'btn btn-default', emit: 'closeModals', payload: '' }
+        ]
+    });
 };
 
 // The bus read with i2cdetect; the addresses OLED controllers use are named.

@@ -17,9 +17,11 @@
             "saveButton": {
                 "label": "TRANSLATE.JUSTOLED.SAVE",
                 "data": [
-                    "bus",
+                    "connection",
                     "panel",
                     "i2c_bus",
+                    "i2c_sda",
+                    "i2c_scl",
                     "i2c_address",
                     "spi_bus",
                     "spi_cs",
@@ -30,22 +32,34 @@
             },
             "content": [
                 {
-                    "id": "bus",
+                    "id": "connection",
                     "element": "select",
-                    "label": "TRANSLATE.JUSTOLED.BUS",
-                    "doc": "TRANSLATE.JUSTOLED.BUS_DOC",
+                    "label": "TRANSLATE.JUSTOLED.CONNECTION",
+                    "doc": "TRANSLATE.JUSTOLED.CONNECTION_DOC",
                     "value": {
                         "value": "i2c",
-                        "label": "TRANSLATE.JUSTOLED.BUS_I2C"
+                        "label": "TRANSLATE.JUSTOLED.CONNECTION_I2C"
                     },
                     "options": [
                         {
                             "value": "i2c",
-                            "label": "TRANSLATE.JUSTOLED.BUS_I2C"
+                            "label": "TRANSLATE.JUSTOLED.CONNECTION_I2C"
+                        },
+                        {
+                            "value": "i2c_custom",
+                            "label": "TRANSLATE.JUSTOLED.CONNECTION_I2C_CUSTOM"
                         },
                         {
                             "value": "spi",
-                            "label": "TRANSLATE.JUSTOLED.BUS_SPI"
+                            "label": "TRANSLATE.JUSTOLED.CONNECTION_SPI"
+                        },
+                        {
+                            "value": "spi_waveshare",
+                            "label": "TRANSLATE.JUSTOLED.CONNECTION_SPI_WAVESHARE"
+                        },
+                        {
+                            "value": "spi_custom",
+                            "label": "TRANSLATE.JUSTOLED.CONNECTION_SPI_CUSTOM"
                         }
                     ]
                 },
@@ -79,8 +93,54 @@
                         }
                     ],
                     "visibleIf": {
-                        "field": "bus",
-                        "value": "i2c"
+                        "field": "connection",
+                        "value": "i2c_custom"
+                    }
+                },
+                {
+                    "id": "i2c_sda",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.I2C_SDA",
+                    "doc": "TRANSLATE.JUSTOLED.I2C_PINS_DOC",
+                    "value": 2,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 27
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "connection",
+                        "value": "i2c_custom"
+                    }
+                },
+                {
+                    "id": "i2c_scl",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.I2C_SCL",
+                    "doc": "TRANSLATE.JUSTOLED.I2C_PINS_DOC",
+                    "value": 3,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 27
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "connection",
+                        "value": "i2c_custom"
                     }
                 },
                 {
@@ -107,8 +167,8 @@
                         }
                     ],
                     "visibleIf": {
-                        "field": "bus",
-                        "value": "i2c"
+                        "field": "connection",
+                        "value": "i2c_custom"
                     }
                 },
                 {
@@ -130,8 +190,8 @@
                         }
                     ],
                     "visibleIf": {
-                        "field": "bus",
-                        "value": "spi"
+                        "field": "connection",
+                        "value": "spi_custom"
                     }
                 },
                 {
@@ -153,8 +213,8 @@
                         }
                     ],
                     "visibleIf": {
-                        "field": "bus",
-                        "value": "spi"
+                        "field": "connection",
+                        "value": "spi_custom"
                     }
                 },
                 {
@@ -163,6 +223,29 @@
                     "type": "number",
                     "label": "TRANSLATE.JUSTOLED.GPIO_DC",
                     "doc": "TRANSLATE.JUSTOLED.GPIO_DC_DOC",
+                    "value": 24,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 27
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "connection",
+                        "value": "spi_custom"
+                    }
+                },
+                {
+                    "id": "gpio_reset",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.GPIO_RESET",
+                    "doc": "TRANSLATE.JUSTOLED.GPIO_RESET_DOC",
                     "value": 25,
                     "attributes": [
                         {
@@ -176,31 +259,8 @@
                         }
                     ],
                     "visibleIf": {
-                        "field": "bus",
-                        "value": "spi"
-                    }
-                },
-                {
-                    "id": "gpio_reset",
-                    "element": "input",
-                    "type": "number",
-                    "label": "TRANSLATE.JUSTOLED.GPIO_RESET",
-                    "doc": "TRANSLATE.JUSTOLED.GPIO_RESET_DOC",
-                    "value": 27,
-                    "attributes": [
-                        {
-                            "min": 0
-                        },
-                        {
-                            "max": 27
-                        },
-                        {
-                            "step": 1
-                        }
-                    ],
-                    "visibleIf": {
-                        "field": "bus",
-                        "value": "spi"
+                        "field": "connection",
+                        "value": "spi_custom"
                     }
                 },
                 {
