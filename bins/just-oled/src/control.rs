@@ -91,6 +91,9 @@ pub struct Report {
     pub ring: bool,
     pub phase: String,
     pub status: String,
+    /// Frames sent per second lately, and the last frame's transfer time.
+    pub fps: f32,
+    pub frame_ms: f32,
 }
 
 /// `row 1|row 2` into rows, trimmed.
@@ -178,6 +181,14 @@ fn pong(r: &Report) -> String {
     m.insert("ring".into(), Value::Bool(r.ring));
     m.insert("phase".into(), Value::String(r.phase.clone()));
     m.insert("status".into(), Value::String(r.status.clone()));
+    m.insert(
+        "fps".into(),
+        Value::Number((r.fps * 10.0).round() as f64 / 10.0),
+    );
+    m.insert(
+        "frameMs".into(),
+        Value::Number((r.frame_ms * 10.0).round() as f64 / 10.0),
+    );
     Value::Object(m).to_json()
 }
 

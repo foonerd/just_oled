@@ -74,6 +74,12 @@ struct Panel {
     sent: Vec<u8>,
     /// Whether the controller is showing its RAM.
     on: bool,
+    /// Frames sent since the last rate reading, and when that was.
+    frames: u32,
+    rate_since: Instant,
+    /// Frames per second over the last reading, and the last frame's transfer time.
+    pub fps: f32,
+    pub frame_ms: f32,
 }
 
 impl Panel {
@@ -88,6 +94,10 @@ impl Panel {
             sent: Vec::new(),
             canvas,
             on: true,
+            frames: 0,
+            rate_since: Instant::now(),
+            fps: 0.0,
+            frame_ms: 0.0,
         })
     }
 
@@ -96,9 +106,18 @@ impl Panel {
         if self.sent.as_slice() == self.canvas.bytes() {
             return Ok(());
         }
+        let started = Instant::now();
         self.oled.show(&self.canvas)?;
+        self.frame_ms = started.elapsed().as_secs_f32() * 1000.0;
         self.sent.clear();
         self.sent.extend_from_slice(self.canvas.bytes());
+        self.frames += 1;
+        let span = started.duration_since(self.rate_since);
+        if span >= Duration::from_secs(2) {
+            self.fps = self.frames as f32 / span.as_secs_f32();
+            self.frames = 0;
+            self.rate_since = started;
+        }
         Ok(())
     }
 
@@ -426,6 +445,8 @@ impl Daemon {
             r.ring = self.ring_live();
             r.phase = self.phase.name().to_string();
             r.status = self.status().name().to_string();
+            r.fps = self.panel.as_ref().map_or(0.0, |p| p.fps);
+            r.frame_ms = self.panel.as_ref().map_or(0.0, |p| p.frame_ms);
         }
     }
 
