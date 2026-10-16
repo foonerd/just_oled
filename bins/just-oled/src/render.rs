@@ -14,7 +14,7 @@ use justoled::ring::Frame;
 use crate::control::{Status, Track};
 use crate::meter::Bars;
 use crate::net::{Connection, Net};
-use crate::pages::{self, Face, Look, Marquee, TimeDisplay, TrackText, View};
+use crate::pages::{self, Face, Look, Marquee, Theme, TimeDisplay, TrackText, View, THEMES};
 use crate::pattern;
 
 /// The panel classes the pages are laid out for.
@@ -119,15 +119,15 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(dir)?;
     let track = Track {
         status: Status::Play,
-        title: "Harvest Moon".into(),
+        title: "Heart of Gold".into(),
         artist: "Neil Young".into(),
-        album: "Harvest Moon".into(),
+        album: "Harvest".into(),
         samplerate: "44.1 kHz".into(),
         bitdepth: "16 bit".into(),
         bitrate: "1411 kbps".into(),
         volume: 62,
         seek: 83_000,
-        duration: 303,
+        duration: 187,
         ..Track::default()
     };
     let net = Net {
@@ -143,15 +143,16 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
     let date = "Thu 16 Oct 2026";
     let mut written = 0;
     for &(class, format, w, h) in CLASSES {
-        let mut scenes: Vec<(String, Canvas)> = Vec::with_capacity(SCENES_PER_CLASS);
+        let mut scenes: Vec<(String, Canvas)> = Vec::with_capacity(SCENES_PER_CLASS + 4);
         let fresh = || Canvas::new(format, w, h);
+        let theme = Theme::default();
 
         let mut c = fresh();
-        pages::lines(&mut c, &["Volumio".into(), "booting...".into()]);
+        pages::lines(&mut c, &["Volumio".into(), "booting...".into()], &theme);
         scenes.push(("boot".into(), c));
 
         let mut c = fresh();
-        pages::lines(&mut c, &["Volumio".into(), "ready".into()]);
+        pages::lines(&mut c, &["Volumio".into(), "ready".into()], &theme);
         scenes.push(("ready".into(), c));
 
         for (name, look) in looks() {
@@ -174,6 +175,36 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
             scenes.push((format!("face-{name}"), c));
         }
 
+        // The other themes, on the panels that have colour.
+        if format == Format::Rgb565 {
+            for name in THEMES
+                .iter()
+                .filter(|t| !matches!(**t, "classic" | "custom"))
+            {
+                let look = Look {
+                    theme: Theme::preset(name),
+                    ..Look::default()
+                };
+                let bars = bars_for(w, h, &look);
+                let view = View {
+                    track: &track,
+                    bars: &bars,
+                    blind: false,
+                    elapsed_s: 83,
+                    net: &net,
+                    look: &look,
+                    album: &rows[0],
+                    artist: &rows[1],
+                    line: &rows[2],
+                    title: &rows[3],
+                    now,
+                };
+                let mut c = fresh();
+                pages::playing(&mut c, &view);
+                scenes.push((format!("theme-{name}"), c));
+            }
+        }
+
         let look = Look::default();
         let silent = Bars::new(pages::bar_count(w, h, &look));
         let blind_view = View {
@@ -194,7 +225,11 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         scenes.push(("playing-no-tap".into(), c));
 
         let mut c = fresh();
-        pages::lines(&mut c, &["Paused".into(), "waiting on music".into()]);
+        pages::lines(
+            &mut c,
+            &["Paused".into(), "waiting on music".into()],
+            &theme,
+        );
         scenes.push(("paused".into(), c));
 
         let mut c = fresh();
@@ -214,7 +249,7 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         scenes.push(("standby-no-ip".into(), c));
 
         let mut c = fresh();
-        pages::lines(&mut c, &["Volumio".into(), "shutting down".into()]);
+        pages::lines(&mut c, &["Volumio".into(), "shutting down".into()], &theme);
         scenes.push(("farewell".into(), c));
 
         let mut c = fresh();
@@ -237,7 +272,8 @@ mod tests {
     fn every_scene_renders_on_every_class() {
         let dir = std::env::temp_dir().join(format!("just-oled-render-{}", std::process::id()));
         let n = render(&dir).expect("render");
-        assert_eq!(n, CLASSES.len() * SCENES_PER_CLASS);
+        let colour_classes = CLASSES.iter().filter(|c| c.1 == Format::Rgb565).count();
+        assert_eq!(n, CLASSES.len() * SCENES_PER_CLASS + colour_classes * 4);
         let one = std::fs::read(dir.join("128x128-rgb-face-spectrum.ppm")).unwrap();
         assert!(one.starts_with(b"P6\n128 128\n255\n"));
         assert_eq!(one.len(), "P6\n128 128\n255\n".len() + 128 * 128 * 3);

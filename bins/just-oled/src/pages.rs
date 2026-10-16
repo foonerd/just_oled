@@ -28,15 +28,95 @@ struct Palette {
     progress: Colour,
 }
 
-fn palette(format: Format) -> Palette {
+/// The colours a colour panel draws with: the words, the bars, the peak
+/// mark and the progress line. A grey or one-bit panel keeps its own
+/// levels whatever the theme.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Theme {
+    pub title: Colour,
+    pub detail: Colour,
+    pub bar_low: Colour,
+    pub bar_high: Colour,
+    pub peak: Colour,
+    pub progress: Colour,
+}
+
+/// The themes offered by name; `custom` takes its colours from the store.
+pub const THEMES: &[&str] = &["classic", "amber", "ice", "fire", "white", "custom"];
+
+impl Theme {
+    /// A named theme; anything unknown is the classic one.
+    pub fn preset(name: &str) -> Theme {
+        match name {
+            "amber" => Theme {
+                title: Colour::rgb(255, 190, 40),
+                detail: Colour::rgb(190, 130, 20),
+                bar_low: Colour::rgb(255, 150, 0),
+                bar_high: Colour::rgb(255, 215, 90),
+                peak: Colour::rgb(255, 245, 200),
+                progress: Colour::rgb(210, 120, 0),
+            },
+            "ice" => Theme {
+                title: Colour::WHITE,
+                detail: Colour::rgb(150, 180, 210),
+                bar_low: Colour::rgb(0, 140, 255),
+                bar_high: Colour::rgb(130, 225, 255),
+                peak: Colour::WHITE,
+                progress: Colour::rgb(0, 110, 200),
+            },
+            "fire" => Theme {
+                title: Colour::WHITE,
+                detail: Colour::rgb(210, 150, 130),
+                bar_low: Colour::rgb(220, 40, 0),
+                bar_high: Colour::rgb(255, 170, 0),
+                peak: Colour::rgb(255, 240, 150),
+                progress: Colour::rgb(200, 60, 0),
+            },
+            "white" => Theme {
+                title: Colour::WHITE,
+                detail: Colour::grey(200),
+                bar_low: Colour::WHITE,
+                bar_high: Colour::WHITE,
+                peak: Colour::WHITE,
+                progress: Colour::WHITE,
+            },
+            _ => Theme {
+                title: Colour::WHITE,
+                detail: Colour::rgb(160, 160, 170),
+                bar_low: Colour::rgb(0, 200, 120),
+                bar_high: Colour::rgb(255, 180, 0),
+                peak: Colour::rgb(255, 80, 60),
+                progress: Colour::rgb(0, 150, 170),
+            },
+        }
+    }
+
+    /// `#rrggbb` or `rrggbb`, as the settings page's colour picker writes it.
+    pub fn parse_colour(text: &str) -> Option<Colour> {
+        let hex = text.trim().trim_start_matches('#');
+        if hex.len() != 6 {
+            return None;
+        }
+        let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+        Some(Colour::rgb(byte(0)?, byte(2)?, byte(4)?))
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Theme::preset("classic")
+    }
+}
+
+fn palette(format: Format, theme: &Theme) -> Palette {
     match format {
         Format::Rgb565 => Palette {
-            title: Colour::WHITE,
-            detail: Colour::rgb(160, 160, 170),
-            bar_low: Colour::rgb(0, 200, 120),
-            bar_high: Colour::rgb(255, 180, 0),
-            peak: Colour::rgb(255, 80, 60),
-            progress: Colour::rgb(0, 150, 170),
+            title: theme.title,
+            detail: theme.detail,
+            bar_low: theme.bar_low,
+            bar_high: theme.bar_high,
+            peak: theme.peak,
+            progress: theme.progress,
         },
         _ => Palette {
             title: Colour::WHITE,
@@ -541,7 +621,7 @@ fn draw_marquee(
 
 /// Rows of text centred on the panel, in the largest face that fits the
 /// rows across; more rows than fit down are cut from the end.
-pub fn lines(canvas: &mut Canvas, rows: &[String]) {
+pub fn lines(canvas: &mut Canvas, rows: &[String], theme: &Theme) {
     canvas.clear();
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
@@ -550,7 +630,7 @@ pub fn lines(canvas: &mut Canvas, rows: &[String]) {
     let shown = rows.len().min((h / line).max(1) as usize);
     let block = shown as i32 * line;
     let top = (h - block) / 2;
-    let pal = palette(canvas.format());
+    let pal = palette(canvas.format(), theme);
     for (i, row) in rows.iter().take(shown).enumerate() {
         let colour = if i == 0 { pal.title } else { pal.detail };
         let fitted = font.fit(row, w - 2);
@@ -592,6 +672,8 @@ pub struct Look {
     /// Decibels added to the meters, for quiet or loud masters.
     pub gain_db: i32,
     pub show_ip: bool,
+    /// The colours on a colour panel.
+    pub theme: Theme,
 }
 
 impl Default for Look {
@@ -604,6 +686,7 @@ impl Default for Look {
             peaks: true,
             gain_db: 0,
             show_ip: true,
+            theme: Theme::default(),
         }
     }
 }
@@ -657,7 +740,7 @@ pub fn playing(canvas: &mut Canvas, view: &View) {
     canvas.clear();
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
-    let pal = palette(canvas.format());
+    let pal = palette(canvas.format(), &view.look.theme);
     let lay = layout(w, h, view.look.face, view.look);
 
     // The meter, or the reason there is none.
@@ -680,7 +763,8 @@ pub fn playing(canvas: &mut Canvas, view: &View) {
     }
 
     if let Some(status) = lay.status {
-        draw_status(canvas, status, view, &pal);
+        let beside_time = lay.time.is_some_and(|t| t.y == status.y);
+        draw_status(canvas, status, view, &pal, beside_time);
     }
     if let Some(rect) = lay.time {
         let text = time_text(view.look, view.elapsed_s, view.track.duration);
@@ -828,8 +912,9 @@ fn draw_bars_stereo(canvas: &mut Canvas, r: Rect, bars: &Bars, peaks: bool, pal:
     }
 }
 
-/// The stream's format on the left, the volume and the connection on the right.
-fn draw_status(canvas: &mut Canvas, rect: Rect, view: &View, pal: &Palette) {
+/// The stream's format on the left, the volume and the connection on the
+/// right; beside the time, the format keeps to the icons instead.
+fn draw_status(canvas: &mut Canvas, rect: Rect, view: &View, pal: &Palette, beside_time: bool) {
     let icon_w = 12;
     let icon_y = rect.y + (rect.h - 8) / 2;
     let mut right = rect.x + rect.w;
@@ -853,8 +938,13 @@ fn draw_status(canvas: &mut Canvas, rect: Rect, view: &View, pal: &Palette) {
     } else {
         String::new()
     };
+    let x = if beside_time {
+        right - 5 - SMALL.width(&text)
+    } else {
+        rect.x
+    };
     canvas.set_clip(rect.x, rect.y, room, rect.h);
-    canvas.text(SMALL, rect.x, rect.y, &text, pal.detail);
+    canvas.text(SMALL, x.max(rect.x), rect.y, &text, pal.detail);
     canvas.clear_clip();
 }
 
@@ -1016,7 +1106,7 @@ pub fn standby(canvas: &mut Canvas, clock: &str, date: &str, net: &Net, look: &L
     canvas.clear();
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
-    let pal = palette(canvas.format());
+    let pal = palette(canvas.format(), &look.theme);
     if h < 40 {
         let y = (h - MEDIUM.line_height as i32) / 2;
         canvas.text_centred(MEDIUM, 0, y, w, clock, pal.title);
@@ -1292,17 +1382,54 @@ mod tests {
 
     #[test]
     fn text_rows_are_centred_and_cut_to_what_fits() {
+        let theme = Theme::default();
         let mut c = Canvas::new(Format::Paged1, 128, 32);
-        lines(&mut c, &["Volumio".into(), "booting...".into()]);
+        lines(&mut c, &["Volumio".into(), "booting...".into()], &theme);
         let rows = lit_rows(&c);
         assert!(!rows.is_empty());
         assert!(*rows.first().unwrap() >= 1 && *rows.last().unwrap() <= 30);
-        lines(&mut c, &["a".into(), "b".into(), "c".into()]);
+        lines(&mut c, &["a".into(), "b".into(), "c".into()], &theme);
         let mut c = Canvas::new(Format::Rgb565, 128, 128);
-        lines(&mut c, &["Volumio".into(), "ready".into()]);
+        lines(&mut c, &["Volumio".into(), "ready".into()], &theme);
         let rows = lit_rows(&c);
         let (top, bottom) = (*rows.first().unwrap(), *rows.last().unwrap());
         assert!((top - (127 - bottom)).abs() <= 8, "{top} {bottom}");
+    }
+
+    #[test]
+    fn the_theme_colours_a_colour_panel_and_leaves_a_mono_one() {
+        let amber = Theme::preset("amber");
+        let mut c = Canvas::new(Format::Rgb565, 128, 64);
+        lines(&mut c, &["Volumio".into()], &amber);
+        let lit: Vec<Colour> = (0..64)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .map(|(x, y)| c.get(x, y))
+            .filter(|&p| p != Colour::BLACK)
+            .collect();
+        assert!(!lit.is_empty());
+        // RGB565 rounds the colour; one colour, the amber, is what matters.
+        let first = lit[0];
+        assert!(lit.iter().all(|&p| p == first), "all in the title colour");
+        assert!(
+            first.r >= 248 && (184..=192).contains(&first.g) && first.b <= 48,
+            "{first:?}"
+        );
+        let mut c = Canvas::new(Format::Paged1, 128, 64);
+        lines(&mut c, &["Volumio".into()], &amber);
+        assert!(!lit_rows(&c).is_empty());
+        // The picker's hex, with or without the hash; anything else is nothing.
+        assert_eq!(
+            Theme::parse_colour("#FF8000"),
+            Some(Colour::rgb(255, 128, 0))
+        );
+        assert_eq!(
+            Theme::parse_colour("00c878"),
+            Some(Colour::rgb(0, 200, 120))
+        );
+        assert_eq!(Theme::parse_colour("#fff"), None);
+        assert_eq!(Theme::parse_colour("red"), None);
+        assert_eq!(Theme::preset("nothing"), Theme::default());
+        assert!(THEMES.contains(&"custom"));
     }
 
     #[test]

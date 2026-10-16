@@ -360,7 +360,7 @@ impl Daemon {
         let show = s.show_lifecycle;
         if let Some(p) = self.panel.as_mut() {
             if show {
-                pages::lines(&mut p.canvas, &text);
+                pages::lines(&mut p.canvas, &text, &s.look.theme);
             } else {
                 p.canvas.clear();
             }
@@ -475,18 +475,21 @@ impl Daemon {
             }
             s.idle_clock && s.idle_timeout.is_none_or(|t| since < t)
         };
+        let theme = &s.look.theme;
         match &self.phase {
-            Phase::Boot if s.show_lifecycle => pages::lines(&mut panel.canvas, &s.text_boot),
+            Phase::Boot if s.show_lifecycle => pages::lines(&mut panel.canvas, &s.text_boot, theme),
             Phase::Boot => {
                 display_on = standby(&mut panel.canvas, Duration::ZERO);
             }
-            Phase::Ready { .. } => pages::lines(&mut panel.canvas, &s.text_ready),
-            Phase::Message { lines, .. } => pages::lines(&mut panel.canvas, lines),
+            Phase::Ready { .. } => pages::lines(&mut panel.canvas, &s.text_ready, theme),
+            Phase::Message { lines, .. } => pages::lines(&mut panel.canvas, lines, theme),
             Phase::Test { .. } => pattern::draw(&mut panel.canvas),
             Phase::Farewell => {}
             Phase::Player => match status {
                 Status::Play => pages::playing(&mut panel.canvas, &view),
-                Status::Pause if s.show_lifecycle => pages::lines(&mut panel.canvas, &s.text_pause),
+                Status::Pause if s.show_lifecycle => {
+                    pages::lines(&mut panel.canvas, &s.text_pause, theme)
+                }
                 Status::Pause => pages::playing(&mut panel.canvas, &view),
                 Status::Stop => {
                     display_on = standby(&mut panel.canvas, since);

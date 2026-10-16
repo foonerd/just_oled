@@ -4,13 +4,15 @@
 
 use std::fmt;
 
-use justoled::canvas::Rotate;
+use justoled::canvas::{Colour, Rotate};
 use justoled::catalog::{self, Entry};
 use justoled::json::Store;
 use justoled::oled::Wiring;
 
 use crate::meter::GAIN_DB_RANGE;
-use crate::pages::{Face, Look, TimeDisplay, TrackText, CLOCK_FORMATS, DATE_FORMATS};
+use crate::pages::{
+    Face, Look, Theme, TimeDisplay, TrackText, CLOCK_FORMATS, DATE_FORMATS, THEMES,
+};
 
 /// Where Volumio keeps the plugin's store.
 pub const DEFAULT_PATH: &str = "/data/configuration/system_hardware/just_oled/config.json";
@@ -131,6 +133,29 @@ impl Settings {
                 .map_or(0, |n| n.round() as i32)
                 .clamp(-GAIN_DB_RANGE, GAIN_DB_RANGE),
             show_ip: store.boolean("show_ip").unwrap_or(true),
+            theme: {
+                let name = one_of("theme", THEMES);
+                if name == "custom" {
+                    // Each colour the picker wrote, the classic one where it did not.
+                    let classic = Theme::default();
+                    let colour = |key: &str, fallback: Colour| {
+                        store
+                            .string(key)
+                            .and_then(|t| Theme::parse_colour(&t))
+                            .unwrap_or(fallback)
+                    };
+                    Theme {
+                        title: colour("colour_title", classic.title),
+                        detail: colour("colour_detail", classic.detail),
+                        bar_low: colour("colour_bar_low", classic.bar_low),
+                        bar_high: colour("colour_bar_high", classic.bar_high),
+                        peak: colour("colour_peak", classic.peak),
+                        progress: colour("colour_progress", classic.progress),
+                    }
+                } else {
+                    Theme::preset(&name)
+                }
+            },
         };
         Ok(Settings {
             entry,
@@ -241,6 +266,9 @@ mod tests {
             ("clock_format", "\"%I:%M %p\""),
             ("date_format", "\"%Y-%m-%d\""),
             ("show_ip", "false"),
+            ("theme", "\"custom\""),
+            ("colour_title", "\"#ff8000\""),
+            ("colour_bar_low", "\"nonsense\""),
         ]);
         let s = Settings::parse(&text).expect("parses");
         assert_eq!(
@@ -253,6 +281,10 @@ mod tests {
                 peaks: false,
                 gain_db: -6,
                 show_ip: false,
+                theme: Theme {
+                    title: Colour::rgb(255, 128, 0),
+                    ..Theme::default()
+                },
             }
         );
         assert!(!s.idle_clock);
@@ -274,6 +306,14 @@ mod tests {
         assert_eq!(s.clock_format, "%H:%M");
         assert_eq!(s.look.face, Face::Spectrum);
         assert_eq!(s.look.gain_db, 12, "held to the range");
+        let text = store(&[
+            ("connection", "\"spi\""),
+            ("panel", "\"ssd1351_128x128\""),
+            ("gpio_dc", "25"),
+            ("theme", "\"amber\""),
+        ]);
+        let s = Settings::parse(&text).expect("parses");
+        assert_eq!(s.look.theme, Theme::preset("amber"));
     }
 
     #[test]
