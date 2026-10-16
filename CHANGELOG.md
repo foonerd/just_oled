@@ -4,6 +4,8 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-16
+
 - Colours for the colour panels: a *Colours* choice in the Face section with Classic (white, green bars with an amber top, red peak), Amber, Ice, Fire and White, or Custom with a colour picker for each of the title, the detail rows, the bars, the bars' top, the peak marks and the progress line. The boot, ready, pause and farewell texts take the theme too. A monochrome or greyscale panel keeps its own levels.
 - Beside the time, the format text keeps to the volume and connection icons rather than floating mid-row.
 
