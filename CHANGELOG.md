@@ -4,6 +4,8 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+- `ssd1309_128x64` verified on a 2.42" module over SPI (the first one-bit controller on the bench): the test picture to all four corners, the playing page at 25 fps, 1.1 ms a frame.
+
 ## [0.1.2] - 2026-10-16
 
 - Colours for the colour panels: a *Colours* choice in the Face section with Classic (white, green bars with an amber top, red peak), Amber, Ice, Fire and White, or Custom with a colour picker for each of the title, the detail rows, the bars, the bars' top, the peak marks and the progress line. The boot, ready, pause and farewell texts take the theme too. A monochrome or greyscale panel keeps its own levels.

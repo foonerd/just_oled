@@ -256,8 +256,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 64,
         buses: BOTH,
         i2c_addresses: A3C3D,
-        verified: Verified::Described,
-        note: "2.42\" and 1.54\" modules and the transparent 1.51\": Waveshare 2.42inch OLED Module, 1.54inch OLED Module, 1.51inch Transparent OLED, DFRobot DFR0934. No charge pump; the reset line must be driven.",
+        verified: Verified::Bench,
+        note: "2.42\" and 1.54\" modules and the transparent 1.51\": Waveshare 2.42inch OLED Module, 1.54inch OLED Module, 1.51inch Transparent OLED, DFRobot DFR0934. No charge pump; the reset line must be driven. Verified over SPI on a 2.42\" module.",
     },
     Entry {
         id: "ssd1305_128x32",
