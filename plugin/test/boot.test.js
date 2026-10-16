@@ -21,6 +21,16 @@ test('only a custom I2C bus other than 1 writes boot configuration', () => {
     assert.deepEqual(boot.linesFor('spi_custom', 3, 23, 24), []);
 });
 
+test('a faster clock is written for the hardware buses only', () => {
+    assert.deepEqual(boot.linesFor('i2c', 1, 2, 3, 400), ['dtparam=i2c_arm_baudrate=400000']);
+    assert.deepEqual(boot.linesFor('i2c', 1, 2, 3, '1000'), ['dtparam=i2c_arm_baudrate=1000000']);
+    assert.deepEqual(boot.linesFor('i2c', 1, 2, 3, 100), []);
+    assert.deepEqual(boot.linesFor('i2c', 1, 2, 3, 250), [], 'only the two offered speeds');
+    assert.deepEqual(boot.linesFor('i2c_custom', 0, 2, 3, 400), ['dtparam=i2c_vc=on', 'dtparam=i2c_vc_baudrate=400000']);
+    assert.deepEqual(boot.linesFor('i2c_custom', 3, 23, 24, 400), ['dtoverlay=i2c-gpio,bus=3,i2c_gpio_sda=23,i2c_gpio_scl=24,i2c_gpio_delay_us=2']);
+    assert.deepEqual(boot.linesFor('spi', 0, 0, 0, 400), []);
+});
+
 test('the block is replaced or removed without touching the rest of the file', () => {
     const before = 'dtparam=audio=on\n# >>> just_oled\nold\n# <<< just_oled\n';
     const replaced = boot.rewrite(before, ['new']);

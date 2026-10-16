@@ -23,6 +23,7 @@
                     "show_format",
                     "peaks",
                     "meter_gain",
+                    "meter_wide",
                     "theme",
                     "colour_title",
                     "colour_detail",
@@ -153,6 +154,13 @@
                             "step": 1
                         }
                     ]
+                },
+                {
+                    "id": "meter_wide",
+                    "element": "switch",
+                    "label": "TRANSLATE.JUSTOLED.METER_WIDE",
+                    "doc": "TRANSLATE.JUSTOLED.METER_WIDE_DOC",
+                    "value": false
                 },
                 {
                     "id": "theme",
@@ -450,6 +458,7 @@
                     "i2c_sda",
                     "i2c_scl",
                     "i2c_address",
+                    "i2c_speed",
                     "spi_bus",
                     "spi_cs",
                     "gpio_dc",
@@ -597,6 +606,30 @@
                         "field": "connection",
                         "value": "i2c_custom"
                     }
+                },
+                {
+                    "id": "i2c_speed",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.I2C_SPEED",
+                    "doc": "TRANSLATE.JUSTOLED.I2C_SPEED_DOC",
+                    "value": {
+                        "value": "100",
+                        "label": "TRANSLATE.JUSTOLED.I2C_SPEED_100"
+                    },
+                    "options": [
+                        {
+                            "value": "100",
+                            "label": "TRANSLATE.JUSTOLED.I2C_SPEED_100"
+                        },
+                        {
+                            "value": "400",
+                            "label": "TRANSLATE.JUSTOLED.I2C_SPEED_400"
+                        },
+                        {
+                            "value": "1000",
+                            "label": "TRANSLATE.JUSTOLED.I2C_SPEED_1000"
+                        }
+                    ]
                 },
                 {
                     "id": "spi_bus",

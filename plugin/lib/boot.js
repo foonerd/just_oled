@@ -28,22 +28,27 @@ function pin(value, fallback) {
     return Number.isInteger(n) && n >= 0 && n <= 27 ? n : fallback;
 }
 
-// The boot configuration lines an I2C bus needs: none for bus 1, which
-// Volumio enables; the HAT bus for 0; a software bus on two GPIOs for 3
-// and above. The hardware buses the SoC numbers beyond 1 (Pi 4's 3 to 6)
-// are not reachable this way, so the software bus takes the number.
-function linesFor(connection, bus, sda, scl) {
+// The boot configuration lines an I2C bus needs: none for bus 1 at the
+// Pi's 100 kHz, which Volumio enables; the HAT bus for 0; a software bus
+// on two GPIOs for 3 and above. A faster clock (`speedKhz` 400 or 1000)
+// is written for the two hardware buses; the software bus keeps its
+// delay, as bit-banging does not reach it. The hardware buses the SoC
+// numbers beyond 1 (Pi 4's 3 to 6) are not reachable this way, so the
+// software bus takes the number.
+function linesFor(connection, bus, sda, scl, speedKhz) {
     if (preset(connection).bus !== 'i2c') {
         return [];
     }
     const n = parseInt(bus, 10);
+    const khz = parseInt(speedKhz, 10);
+    const faster = khz === 400 || khz === 1000 ? khz * 1000 : 0;
     if (n === 0) {
-        return ['dtparam=i2c_vc=on'];
+        return ['dtparam=i2c_vc=on'].concat(faster ? ['dtparam=i2c_vc_baudrate=' + faster] : []);
     }
     if (Number.isInteger(n) && n >= 3) {
         return ['dtoverlay=i2c-gpio,bus=' + n + ',i2c_gpio_sda=' + pin(sda, 2) + ',i2c_gpio_scl=' + pin(scl, 3) + ',i2c_gpio_delay_us=2'];
     }
-    return [];
+    return faster ? ['dtparam=i2c_arm_baudrate=' + faster] : [];
 }
 
 // `content` with the plugin's block replaced by `lines`, or removed when
