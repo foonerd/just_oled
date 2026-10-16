@@ -49,18 +49,39 @@ pub fn font_for(height: u16) -> &'static Font {
     }
 }
 
+/// The largest face, from the one the height allows down, in which every
+/// row fits the width; the smallest when none does (the row is then cut).
+fn font_that_fits<'a>(
+    height: u16,
+    width: i32,
+    rows: impl Iterator<Item = &'a str> + Clone,
+) -> &'static Font {
+    let start = font_for(height);
+    let ladder: &[&Font] = &[LARGE, MEDIUM, SMALL];
+    let from = ladder
+        .iter()
+        .position(|f| std::ptr::eq(*f, start))
+        .unwrap_or(0);
+    for font in &ladder[from..] {
+        if rows.clone().all(|r| font.width(r) <= width) {
+            return font;
+        }
+    }
+    SMALL
+}
+
 /// How many bars a panel this wide shows: three pixels and a gap each.
 pub fn bar_count(width: u16) -> usize {
     ((width as usize + 1) / 4).clamp(4, 64)
 }
 
-/// Rows of text centred on the panel, the font by its height; more rows
-/// than fit are cut from the end.
+/// Rows of text centred on the panel, in the largest face that fits the
+/// rows across; more rows than fit down are cut from the end.
 pub fn lines(canvas: &mut Canvas, rows: &[String]) {
     canvas.clear();
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
-    let font = font_for(canvas.height());
+    let font = font_that_fits(canvas.height(), w - 2, rows.iter().map(String::as_str));
     let line = font.line_height as i32;
     let shown = rows.len().min((h / line).max(1) as usize);
     let block = shown as i32 * line;
@@ -82,8 +103,8 @@ pub fn playing(canvas: &mut Canvas, track: &Track, bars: &Bars, blind: bool) {
     let pal = palette(canvas.format());
     let (title_font, detail_font, rows) = match h {
         0..=39 => (SMALL, SMALL, 1),
-        40..=95 => (MEDIUM, SMALL, 2),
-        _ => (LARGE, MEDIUM, 2),
+        // The large face fits five or six letters across 128 pixels: titles stay medium.
+        _ => (MEDIUM, SMALL, 2),
     };
     let title = if track.title.is_empty() {
         "Playing"
@@ -110,8 +131,9 @@ pub fn playing(canvas: &mut Canvas, track: &Track, bars: &Bars, blind: bool) {
         return;
     }
     if blind {
-        let font = font_for(area_h as u16 * 2);
-        let fitted = font.fit("no audio tap", w - 2);
+        let note = "no audio tap";
+        let font = font_that_fits(area_h as u16 * 2, w - 2, std::iter::once(note));
+        let fitted = font.fit(note, w - 2);
         canvas.text_centred(
             font,
             0,
@@ -170,24 +192,28 @@ fn draw_bars(canvas: &mut Canvas, x: i32, y: i32, w: i32, h: i32, bars: &Bars, p
     }
 }
 
-/// The standby page: the time, large, centred.
+/// The standby page: the time, as large as the panel allows, centred.
 pub fn standby(canvas: &mut Canvas, hour: u32, minute: u32) {
     canvas.clear();
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
-    let font = match h {
-        0..=39 => MEDIUM,
-        _ => LARGE,
-    };
     let text = format!("{hour:02}:{minute:02}");
     let pal = palette(canvas.format());
-    canvas.text_centred(
+    // The face and its pixel doubling by what fits: the large face is 30 rows, doubled 60.
+    let (font, scale) = match h {
+        0..=39 => (MEDIUM, 1),
+        40..=79 => (LARGE, 1),
+        _ => (LARGE, 2),
+    };
+    let text_w = font.width(&text) * scale;
+    let text_h = font.line_height as i32 * scale;
+    canvas.text_scaled(
         font,
-        0,
-        (h - font.line_height as i32) / 2,
-        w,
+        (w - text_w) / 2,
+        (h - text_h) / 2,
         &text,
         pal.title,
+        scale,
     );
 }
 

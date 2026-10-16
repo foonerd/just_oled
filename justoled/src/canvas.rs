@@ -309,6 +309,43 @@ impl Canvas {
         let w = font.width(text);
         self.text(font, x + (width - w) / 2, y, text, colour);
     }
+
+    /// `text` with every glyph pixel drawn `scale` times over, for a big
+    /// face out of a small one; returns the pen's x after the last glyph.
+    pub fn text_scaled(
+        &mut self,
+        font: &Font,
+        x: i32,
+        y: i32,
+        text: &str,
+        colour: Colour,
+        scale: i32,
+    ) -> i32 {
+        let scale = scale.max(1);
+        let mut pen = x;
+        for c in text.chars() {
+            let Some(g) = font.glyph_or_mark(c) else {
+                continue;
+            };
+            let gx = pen + g.left as i32 * scale;
+            let gy = y + g.top as i32 * scale;
+            for row in 0..g.height as u32 {
+                for col in 0..g.width as u32 {
+                    if font.lit(g, col, row) {
+                        self.fill_rect(
+                            gx + col as i32 * scale,
+                            gy + row as i32 * scale,
+                            scale,
+                            scale,
+                            colour,
+                        );
+                    }
+                }
+            }
+            pen += g.advance as i32 * scale;
+        }
+        pen
+    }
 }
 
 #[cfg(test)]

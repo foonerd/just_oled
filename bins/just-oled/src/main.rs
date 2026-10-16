@@ -13,6 +13,7 @@ mod meter;
 mod pages;
 mod pattern;
 mod probe;
+mod render;
 mod settings;
 
 use std::path::PathBuf;
@@ -35,6 +36,7 @@ just-oled: the Just OLED display daemon
                               (default 10; 0 leaves it up)
   just-oled --say \"row 1|row 2\" [--hold S]   a message on the running daemon's panel
   just-oled --ping            ask the running daemon how it is
+  just-oled --render DIR      every page on every panel class, as PPM files, for the documentation
   just-oled --config PATH     read the settings from PATH rather than Volumio's store
   just-oled --socket PATH     the control socket (default under /run/just-oled, else /tmp)
   just-oled --version
@@ -109,6 +111,18 @@ fn main() -> ExitCode {
     }
     if has("--ping") {
         return client(&socket, r#"{"kind":"ping"}"#, true);
+    }
+    if let Some(dir) = value("--render") {
+        return match render::render(std::path::Path::new(&dir)) {
+            Ok(n) => {
+                println!("just-oled: {n} pictures under {dir}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("just-oled: render {dir}: {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
     // With only the paths given, or nothing, it is the service.
     let mut rest = args.clone();
