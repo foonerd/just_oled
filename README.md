@@ -1,0 +1,56 @@
+# Just OLED
+
+Spectrum, VU bars, the track and a clock on a small OLED, moving with the music on a Volumio player. A Volumio plugin written in Rust for the whole family of I2C and SPI OLED modules, monochrome, greyscale and colour: an audio tap in the player's ALSA chain measures every source, files, radio, streaming, AirPlay and Spotify alike, without touching the sound; a small daemon draws the pages, shows the player's state, a standby clock and date, and says when the system boots, restarts and shuts down.
+
+The workspace version is **0.1.0**. This is the first build: the catalogue, the plugin's shape and the build path are in; the tap, the drivers and the pages arrive stage by stage, and nothing is on a panel yet. The [wiki](https://github.com/foonerd/just_oled/wiki) says what is verified on a module and what is described from the data sheet.
+
+## Get it
+
+Download the plugin zip from the [releases](https://github.com/foonerd/just_oled/releases) and install it by hand as the [Quick Start](https://github.com/foonerd/just_oled/wiki/Quick-Start) shows: `miniunzip` into a folder on the player, `volumio plugin install` from it. Once it has been through field testing and Volumio's review it will be in the plugin store. The wiki has the [wiring](https://github.com/foonerd/just_oled/wiki/Wiring) with a drawing per module, the [supported displays](https://github.com/foonerd/just_oled/wiki/Displays), every [setting](https://github.com/foonerd/just_oled/wiki/Settings) and the [troubleshooting](https://github.com/foonerd/just_oled/wiki/Troubleshooting) page.
+
+| Player | Volumio 4 on a Raspberry Pi Zero 2 W, 3, 4 or 5 (32- or 64-bit image), or a PC with a USB I2C adapter. |
+| --- | --- |
+| Display | Any module on a controller the catalogue names (`just-oled --list`): SSD1306, SSD1309, SSD1315, SSD1305, SH1106, SH1107, SSD1327, SSD1322, SSD1325, SH1122, SSD1362, CH1120, and the colour SSD1331, SSD1351 and SSD1357; see [Displays](https://github.com/foonerd/just_oled/wiki/Displays). |
+| Wiring | I2C: four wires. SPI: seven wires, with data/command and reset on two GPIOs. 3.3 V unless the module says otherwise. |
+
+## What is in the box
+
+```mermaid
+flowchart LR
+    subgraph Player
+        S[Sources: files, radio, streaming, AirPlay, Spotify] --> T[justoledtap: the audio tap in the ALSA chain]
+        T --> H[Sound card]
+        T --> R[(Ring under /dev/shm: peak, RMS and spectrum per channel)]
+        R --> D[just-oled: the display daemon]
+        P[Plugin: settings, player state, lifecycle] -- control socket --> D
+        D -- I2C or SPI --> L[OLED]
+    end
+```
+
+| Part | Where | What it does |
+| --- | --- | --- |
+| `justoled` | `justoled/` | The library behind both artefacts. With the `tap` feature: the measurements, the spectrum bank and the ring. With the `display` feature: the catalogue of controllers and panels, the I2C and SPI transports, the framebuffers in each controller's pixel format, the pages. The one external crate is `libc`. |
+| `justoled-tap` | `bins/justoled-tap` | The ALSA PCM plugin (`libjustoledtap.so`, `type justoledtap`): heads the player's chain, passes every stream through byte for byte, and measures it on a thread of its own. |
+| `just-oled` | `bins/just-oled` | The daemon: reads the ring and the player's state, draws the pages, serves the control socket; `--list`, `--probe`, `--test`, `--say` and `--render` on the command line. |
+| The plugin | `plugin/` | The Volumio plugin: `index.js` and the settings page at the root, the ALSA contribution template under `alsa/`, the tap under `alsa-lib/<arch>/`, the daemon under `bin/<arch>/`, the service unit under `systemd/`, the launcher and the architecture probe under `scripts/`. |
+
+## Build
+
+The toolchain is pinned by `rust-toolchain.toml`; the cross linkers are named in `.cargo/config.toml` (`gcc-arm-linux-gnueabihf`, `gcc-aarch64-linux-gnu`).
+
+```sh
+scripts/check.sh     # format, clippy, tests, docs, dependency gate, glibc ceiling, plugin files and tests
+scripts/ship.sh      # the daemon and the tap for armhf, arm64 and amd64 into bin/ and lib/
+scripts/package.sh   # the plugin zip into dist/
+```
+
+Every shipped binary must load on Volumio's glibc 2.36; `ship.sh` refuses one that does not. `check.sh` refuses a lock file that names any crate beyond the workspace and `libc`. Without the cross compilers on the machine, the builder image of `scripts/builder/Dockerfile` has everything:
+
+```sh
+docker build -t just-oled-builder -f scripts/builder/Dockerfile .
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work just-oled-builder sh -c 'scripts/ship.sh && scripts/package.sh'
+```
+
+## License
+
+MIT. The audio tap descends from the tap of [glass](https://github.com/foonerd/glass), MIT. The controller start-up sequences are transcribed from the data sheets and from the drivers of [u8g2](https://github.com/olikraus/u8g2), BSD-2, with attribution in the source.

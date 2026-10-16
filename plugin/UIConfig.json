@@ -1,0 +1,341 @@
+{
+    "page": {
+        "label": "TRANSLATE.JUSTOLED.PLUGIN_CONFIGURATION"
+    },
+    "sections": [
+        {
+            "id": "section_connection",
+            "element": "section",
+            "label": "TRANSLATE.JUSTOLED.SECTION_CONNECTION",
+            "icon": "fa-plug",
+            "description": "TRANSLATE.JUSTOLED.SECTION_CONNECTION_DOC",
+            "onSave": {
+                "type": "controller",
+                "endpoint": "system_hardware/just_oled",
+                "method": "saveConnection"
+            },
+            "saveButton": {
+                "label": "TRANSLATE.JUSTOLED.SAVE",
+                "data": [
+                    "bus",
+                    "panel",
+                    "i2c_bus",
+                    "i2c_address",
+                    "spi_bus",
+                    "spi_cs",
+                    "gpio_dc",
+                    "gpio_reset",
+                    "rotate"
+                ]
+            },
+            "content": [
+                {
+                    "id": "bus",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.BUS",
+                    "doc": "TRANSLATE.JUSTOLED.BUS_DOC",
+                    "value": {
+                        "value": "i2c",
+                        "label": "TRANSLATE.JUSTOLED.BUS_I2C"
+                    },
+                    "options": [
+                        {
+                            "value": "i2c",
+                            "label": "TRANSLATE.JUSTOLED.BUS_I2C"
+                        },
+                        {
+                            "value": "spi",
+                            "label": "TRANSLATE.JUSTOLED.BUS_SPI"
+                        }
+                    ]
+                },
+                {
+                    "id": "panel",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.PANEL",
+                    "doc": "TRANSLATE.JUSTOLED.PANEL_DOC",
+                    "value": {
+                        "value": "ssd1306_128x64",
+                        "label": "SSD1306 128x64"
+                    },
+                    "options": []
+                },
+                {
+                    "id": "i2c_bus",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.I2C_BUS",
+                    "doc": "TRANSLATE.JUSTOLED.I2C_BUS_DOC",
+                    "value": 1,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 99
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "bus",
+                        "value": "i2c"
+                    }
+                },
+                {
+                    "id": "i2c_address",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.I2C_ADDRESS",
+                    "doc": "TRANSLATE.JUSTOLED.I2C_ADDRESS_DOC",
+                    "value": {
+                        "value": "auto",
+                        "label": "TRANSLATE.JUSTOLED.AUTO"
+                    },
+                    "options": [
+                        {
+                            "value": "auto",
+                            "label": "TRANSLATE.JUSTOLED.AUTO"
+                        },
+                        {
+                            "value": "0x3C",
+                            "label": "0x3C"
+                        },
+                        {
+                            "value": "0x3D",
+                            "label": "0x3D"
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "bus",
+                        "value": "i2c"
+                    }
+                },
+                {
+                    "id": "spi_bus",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.SPI_BUS",
+                    "doc": "TRANSLATE.JUSTOLED.SPI_BUS_DOC",
+                    "value": 0,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 9
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "bus",
+                        "value": "spi"
+                    }
+                },
+                {
+                    "id": "spi_cs",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.SPI_CS",
+                    "doc": "TRANSLATE.JUSTOLED.SPI_CS_DOC",
+                    "value": 0,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 2
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "bus",
+                        "value": "spi"
+                    }
+                },
+                {
+                    "id": "gpio_dc",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.GPIO_DC",
+                    "doc": "TRANSLATE.JUSTOLED.GPIO_DC_DOC",
+                    "value": 25,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 27
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "bus",
+                        "value": "spi"
+                    }
+                },
+                {
+                    "id": "gpio_reset",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.GPIO_RESET",
+                    "doc": "TRANSLATE.JUSTOLED.GPIO_RESET_DOC",
+                    "value": 27,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 27
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "bus",
+                        "value": "spi"
+                    }
+                },
+                {
+                    "id": "rotate",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.ROTATE",
+                    "doc": "TRANSLATE.JUSTOLED.ROTATE_DOC",
+                    "value": {
+                        "value": "0",
+                        "label": "TRANSLATE.JUSTOLED.ROTATE_0"
+                    },
+                    "options": [
+                        {
+                            "value": "0",
+                            "label": "TRANSLATE.JUSTOLED.ROTATE_0"
+                        },
+                        {
+                            "value": "180",
+                            "label": "TRANSLATE.JUSTOLED.ROTATE_180"
+                        }
+                    ]
+                },
+                {
+                    "id": "detect",
+                    "element": "button",
+                    "label": "TRANSLATE.JUSTOLED.DETECT",
+                    "doc": "TRANSLATE.JUSTOLED.DETECT_DOC",
+                    "onClick": {
+                        "type": "plugin",
+                        "endpoint": "system_hardware/just_oled",
+                        "method": "detectDisplay",
+                        "data": []
+                    }
+                },
+                {
+                    "id": "test",
+                    "element": "button",
+                    "label": "TRANSLATE.JUSTOLED.TEST",
+                    "doc": "TRANSLATE.JUSTOLED.TEST_DOC",
+                    "onClick": {
+                        "type": "plugin",
+                        "endpoint": "system_hardware/just_oled",
+                        "method": "testDisplay",
+                        "data": []
+                    }
+                }
+            ]
+        },
+        {
+            "id": "section_messages",
+            "element": "section",
+            "label": "TRANSLATE.JUSTOLED.SECTION_MESSAGES",
+            "icon": "fa-comment-o",
+            "description": "TRANSLATE.JUSTOLED.SECTION_MESSAGES_DOC",
+            "onSave": {
+                "type": "controller",
+                "endpoint": "system_hardware/just_oled",
+                "method": "saveMessages"
+            },
+            "saveButton": {
+                "label": "TRANSLATE.JUSTOLED.SAVE",
+                "data": [
+                    "show_lifecycle",
+                    "text_boot",
+                    "text_ready",
+                    "text_pause",
+                    "text_shutdown",
+                    "text_reboot"
+                ]
+            },
+            "content": [
+                {
+                    "id": "show_lifecycle",
+                    "element": "switch",
+                    "label": "TRANSLATE.JUSTOLED.SHOW_LIFECYCLE",
+                    "doc": "TRANSLATE.JUSTOLED.SHOW_LIFECYCLE_DOC",
+                    "value": true
+                },
+                {
+                    "id": "text_boot",
+                    "element": "input",
+                    "type": "text",
+                    "label": "TRANSLATE.JUSTOLED.TEXT_BOOT",
+                    "doc": "TRANSLATE.JUSTOLED.TEXT_LINES_DOC",
+                    "value": "Volumio|booting...",
+                    "visibleIf": {
+                        "field": "show_lifecycle",
+                        "value": true
+                    }
+                },
+                {
+                    "id": "text_ready",
+                    "element": "input",
+                    "type": "text",
+                    "label": "TRANSLATE.JUSTOLED.TEXT_READY",
+                    "doc": "TRANSLATE.JUSTOLED.TEXT_LINES_DOC",
+                    "value": "Volumio|ready",
+                    "visibleIf": {
+                        "field": "show_lifecycle",
+                        "value": true
+                    }
+                },
+                {
+                    "id": "text_pause",
+                    "element": "input",
+                    "type": "text",
+                    "label": "TRANSLATE.JUSTOLED.TEXT_PAUSE",
+                    "doc": "TRANSLATE.JUSTOLED.TEXT_LINES_DOC",
+                    "value": "Paused|waiting on music"
+                },
+                {
+                    "id": "text_shutdown",
+                    "element": "input",
+                    "type": "text",
+                    "label": "TRANSLATE.JUSTOLED.TEXT_SHUTDOWN",
+                    "doc": "TRANSLATE.JUSTOLED.TEXT_LINES_DOC",
+                    "value": "Volumio|shutting down",
+                    "visibleIf": {
+                        "field": "show_lifecycle",
+                        "value": true
+                    }
+                },
+                {
+                    "id": "text_reboot",
+                    "element": "input",
+                    "type": "text",
+                    "label": "TRANSLATE.JUSTOLED.TEXT_REBOOT",
+                    "doc": "TRANSLATE.JUSTOLED.TEXT_LINES_DOC",
+                    "value": "Volumio|restarting",
+                    "visibleIf": {
+                        "field": "show_lifecycle",
+                        "value": true
+                    }
+                }
+            ]
+        }
+    ]
+}

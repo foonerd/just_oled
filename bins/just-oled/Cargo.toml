@@ -1,0 +1,18 @@
+[package]
+name = "just-oled"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The display daemon: reads the tap's ring and the player's state, draws on the OLED"
+
+[[bin]]
+name = "just-oled"
+path = "src/main.rs"
+
+[dependencies]
+justoled = { path = "../../justoled", default-features = false, features = ["display"] }
+libc = "0.2"
+
+[lints]
+workspace = true

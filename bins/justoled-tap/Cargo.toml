@@ -1,0 +1,23 @@
+[package]
+name = "justoled-tap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The audio tap: an ALSA PCM plugin that passes the stream through and measures it for the display"
+build = "build.rs"
+
+[lib]
+name = "justoledtap"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+# The shared object is named after the ALSA type; the library crate
+# documents the ring, so this one stays out of the documentation.
+doc = false
+
+[dependencies]
+justoled = { path = "../../justoled", default-features = false, features = ["tap"] }
+libc = "0.2"
+
+[lints]
+workspace = true

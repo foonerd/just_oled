@@ -1,0 +1,20 @@
+[package]
+name = "justoled"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Just OLED: the audio tap's measurements and ring, and the OLED catalogue, transports, framebuffers and pages the display daemon draws with"
+
+[features]
+default = ["tap", "display"]
+# What the ALSA tap needs: measurements, the bank, the ring.
+tap = []
+# What the daemon needs: the catalogue, the buses, the framebuffers, the pages.
+display = []
+
+[dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

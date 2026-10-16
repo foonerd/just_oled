@@ -1,0 +1,62 @@
+{
+    "bus": {
+        "type": "string",
+        "value": "i2c"
+    },
+    "panel": {
+        "type": "string",
+        "value": "ssd1306_128x64"
+    },
+    "i2c_bus": {
+        "type": "number",
+        "value": 1
+    },
+    "i2c_address": {
+        "type": "string",
+        "value": "auto"
+    },
+    "spi_bus": {
+        "type": "number",
+        "value": 0
+    },
+    "spi_cs": {
+        "type": "number",
+        "value": 0
+    },
+    "gpio_dc": {
+        "type": "number",
+        "value": 25
+    },
+    "gpio_reset": {
+        "type": "number",
+        "value": 27
+    },
+    "rotate": {
+        "type": "string",
+        "value": "0"
+    },
+    "show_lifecycle": {
+        "type": "boolean",
+        "value": true
+    },
+    "text_boot": {
+        "type": "string",
+        "value": "Volumio|booting..."
+    },
+    "text_ready": {
+        "type": "string",
+        "value": "Volumio|ready"
+    },
+    "text_pause": {
+        "type": "string",
+        "value": "Paused|waiting on music"
+    },
+    "text_shutdown": {
+        "type": "string",
+        "value": "Volumio|shutting down"
+    },
+    "text_reboot": {
+        "type": "string",
+        "value": "Volumio|restarting"
+    }
+}
