@@ -4,6 +4,10 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-16
+
+The first release, a pre-release: everything below is in, one module (the Waveshare 1.5" RGB OLED, SSD1351, on a Raspberry Pi 4) has been seen working, the other controllers are driven from their data sheets and wait for a bench.
+
 - The face: what the panel shows while music plays is the user's choice: the spectrum, the stereo spectrum (left rising, right hanging), the spectrum with left and right level bars, the level bars alone, the track alone in larger type, or the spectrum across the whole panel. With it: the track's time as played and total, played, remaining or off; the sample rate and bit depth (a stream's bitrate) beside the volume and the connection; peak marks on or off; and a meter gain of -12 to +12 dB, since the tap reads the music before the volume control and so shows the recording's level, which quiet and loud masters set 20 dB apart. The standby page shows the time and date in the user's formats (the clock and date lists lcd1602-vumeter offers), the player's address when wanted, and goes dark after a chosen number of minutes or never. The settings page puts the face first, then standby, then the connection, then the messages.
 - The playing page in mpd_oled's manner: the sample rate and bit depth, a volume wedge, the connection and its strength, the time played and the track's length, the album, the artist and the title scrolling when they do not fit, a progress line; laid out for a strip, a 64-row panel and a tall one.
 - The four-bit grey controllers: SSD1327 (1.5" 128x128, 128x96, 96x96), SSD1322 and SSD1362 (256x64), SSD1325 (128x64) and SH1122 (256x64, row by row), each glass at its place in the controller's RAM, the SSD1322 taking its arguments as data and the others as commands, transcribed from the data sheets, u8g2's drivers and luma.oled. Described, not yet drawn on a module. SPI clocks per controller: Sino Wealth's at 4 MHz, Solomon Systech's at 8, the SSD1351 at 10.
