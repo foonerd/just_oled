@@ -4,6 +4,10 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-16
+
+- *I2C bus speed* in the Connection section: 100 kHz (the Pi's default), 400 kHz (what the controllers are specified for) or 1 MHz (beyond it; many modules take it). At 100 kHz a 128x64 frame takes about 90 ms and the meter moves at 10 frames a second; at 400 kHz it moves at the daemon's 25. Written to `/boot/userconfig.txt` between the plugin's marks for the hardware buses (`i2c_arm_baudrate`, `i2c_vc_baudrate`); a restart is asked for. `--probe` prints each bus's clock.
+- *Meter across the panel* in the Face section: the meter takes the full width and at least the upper half, the rows give way from the top (album, artist, the artist · album row, then the format text, the larger title, the gaps) until the rest fits. On a 128x64 panel that is 32 bars over the time and the title, mpd_oled's own arrangement; on a 256x64, 64 bars.
 - `ssd1309_128x64` verified on a 2.42" module over SPI (the first one-bit controller on the bench): the test picture to all four corners, the playing page at 25 fps, 1.1 ms a frame. Then over I2C at 0x3C on the header bus (the first I2C panel): 10.7 fps at 95 ms a frame, the 100 kHz bus's ceiling.
 
 ## [0.1.2] - 2026-10-16
