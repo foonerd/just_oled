@@ -22,7 +22,14 @@
                     "time_display",
                     "show_format",
                     "peaks",
-                    "meter_gain"
+                    "meter_gain",
+                    "theme",
+                    "colour_title",
+                    "colour_detail",
+                    "colour_bar_low",
+                    "colour_bar_high",
+                    "colour_peak",
+                    "colour_progress"
                 ]
             },
             "content": [
@@ -146,6 +153,114 @@
                             "step": 1
                         }
                     ]
+                },
+                {
+                    "id": "theme",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.THEME",
+                    "doc": "TRANSLATE.JUSTOLED.THEME_DOC",
+                    "value": {
+                        "value": "classic",
+                        "label": "TRANSLATE.JUSTOLED.THEME_CLASSIC"
+                    },
+                    "options": [
+                        {
+                            "value": "classic",
+                            "label": "TRANSLATE.JUSTOLED.THEME_CLASSIC"
+                        },
+                        {
+                            "value": "amber",
+                            "label": "TRANSLATE.JUSTOLED.THEME_AMBER"
+                        },
+                        {
+                            "value": "ice",
+                            "label": "TRANSLATE.JUSTOLED.THEME_ICE"
+                        },
+                        {
+                            "value": "fire",
+                            "label": "TRANSLATE.JUSTOLED.THEME_FIRE"
+                        },
+                        {
+                            "value": "white",
+                            "label": "TRANSLATE.JUSTOLED.THEME_WHITE"
+                        },
+                        {
+                            "value": "custom",
+                            "label": "TRANSLATE.JUSTOLED.THEME_CUSTOM"
+                        }
+                    ]
+                },
+                {
+                    "id": "colour_title",
+                    "element": "input",
+                    "type": "color",
+                    "label": "TRANSLATE.JUSTOLED.COLOUR_TITLE",
+                    "doc": "TRANSLATE.JUSTOLED.COLOUR_DOC",
+                    "value": "#ffffff",
+                    "visibleIf": {
+                        "field": "theme",
+                        "value": "custom"
+                    }
+                },
+                {
+                    "id": "colour_detail",
+                    "element": "input",
+                    "type": "color",
+                    "label": "TRANSLATE.JUSTOLED.COLOUR_DETAIL",
+                    "doc": "TRANSLATE.JUSTOLED.COLOUR_DOC",
+                    "value": "#a0a0aa",
+                    "visibleIf": {
+                        "field": "theme",
+                        "value": "custom"
+                    }
+                },
+                {
+                    "id": "colour_bar_low",
+                    "element": "input",
+                    "type": "color",
+                    "label": "TRANSLATE.JUSTOLED.COLOUR_BAR_LOW",
+                    "doc": "TRANSLATE.JUSTOLED.COLOUR_DOC",
+                    "value": "#00c878",
+                    "visibleIf": {
+                        "field": "theme",
+                        "value": "custom"
+                    }
+                },
+                {
+                    "id": "colour_bar_high",
+                    "element": "input",
+                    "type": "color",
+                    "label": "TRANSLATE.JUSTOLED.COLOUR_BAR_HIGH",
+                    "doc": "TRANSLATE.JUSTOLED.COLOUR_DOC",
+                    "value": "#ffb400",
+                    "visibleIf": {
+                        "field": "theme",
+                        "value": "custom"
+                    }
+                },
+                {
+                    "id": "colour_peak",
+                    "element": "input",
+                    "type": "color",
+                    "label": "TRANSLATE.JUSTOLED.COLOUR_PEAK",
+                    "doc": "TRANSLATE.JUSTOLED.COLOUR_DOC",
+                    "value": "#ff503c",
+                    "visibleIf": {
+                        "field": "theme",
+                        "value": "custom"
+                    }
+                },
+                {
+                    "id": "colour_progress",
+                    "element": "input",
+                    "type": "color",
+                    "label": "TRANSLATE.JUSTOLED.COLOUR_PROGRESS",
+                    "doc": "TRANSLATE.JUSTOLED.COLOUR_DOC",
+                    "value": "#0096aa",
+                    "visibleIf": {
+                        "field": "theme",
+                        "value": "custom"
+                    }
                 }
             ]
         },

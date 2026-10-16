@@ -98,4 +98,9 @@ test('the settings page, the store and the strings agree', () => {
     const select = (id) => ui.sections.flatMap((s) => s.content).find((e) => e.id === id).options.map((o) => o.value);
     assert.deepEqual(select('clock_format'), listed('CLOCK_FORMATS'));
     assert.deepEqual(select('date_format'), listed('DATE_FORMATS'));
+    assert.deepEqual(select('theme'), listed('THEMES'));
+    // The colour pickers write #rrggbb; the defaults are of that shape.
+    for (const key of Object.keys(store).filter((k) => k.startsWith('colour_'))) {
+        assert.match(store[key].value, /^#[0-9a-f]{6}$/, key);
+    }
 });
