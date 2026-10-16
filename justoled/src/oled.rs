@@ -234,6 +234,7 @@ impl Oled {
         self.link.reset()?;
         match family(self.entry.controller) {
             Family::Ssd1351 => ssd1351::init(&self.link, self.entry)?,
+            Family::Ssd1331 => ssd1331::init(&self.link)?,
             Family::Ssd1306 => ssd1306::init(&self.link, self.entry)?,
             Family::Sh1106 => sh1106::init(&self.link, self.entry)?,
             Family::Sh1107 => sh1107::init(&self.link, self.entry)?,
@@ -258,6 +259,7 @@ impl Oled {
         }
         match family(self.entry.controller) {
             Family::Ssd1351 => ssd1351::show(&self.link, self.entry, canvas.bytes()),
+            Family::Ssd1331 => ssd1331::show(&self.link, self.entry, canvas.bytes()),
             Family::Ssd1306 => ssd1306::show(&self.link, self.entry, canvas),
             Family::Sh1106 | Family::Sh1107 => paged::show_by_page(&self.link, self.entry, canvas),
             Family::Grey => grey::show(&self.link, self.entry, canvas),
@@ -285,6 +287,7 @@ impl Oled {
     pub fn contrast(&mut self, level: u8) -> io::Result<()> {
         match family(self.entry.controller) {
             Family::Ssd1351 => ssd1351::contrast(&self.link, level),
+            Family::Ssd1331 => self.link.command(&[0x81, level, 0x82, level, 0x83, level]),
             Family::Ssd1306 | Family::Sh1106 | Family::Sh1107 => {
                 self.link.command(&[paged::CONTRAST, level])
             }
@@ -310,6 +313,8 @@ enum Family {
     /// The four-bit greys: SSD1322, SSD1325, SSD1327, SSD1362, SH1122.
     Grey,
     Ssd1351,
+    /// 96x64 RGB; arguments as commands, unlike the SSD1351.
+    Ssd1331,
     None,
 }
 
@@ -326,6 +331,7 @@ fn family(controller: Controller) -> Family {
         | Controller::Ssd1362
         | Controller::Sh1122 => Family::Grey,
         Controller::Ssd1351 => Family::Ssd1351,
+        Controller::Ssd1331 => Family::Ssd1331,
         _ => Family::None,
     }
 }
@@ -791,6 +797,67 @@ mod grey {
                 link.data(canvas.bytes())
             }
         }
+    }
+}
+
+/// SSD1331: 96 x 64 RGB, 65K colour, after luma.oled's `ssd1331` and
+/// Solomon Systech's sheet. Arguments go as commands; pixels follow the
+/// window with no write command.
+mod ssd1331 {
+    use super::*;
+
+    pub fn init(link: &Link) -> io::Result<()> {
+        link.command(&[
+            DISPLAY_OFF,
+            0xA0,
+            0x72, // remap: 65K colour, COM split, COM remap, column remap, RGB order
+            0xA1,
+            0x00, // start line
+            0xA2,
+            0x00, // display offset
+            0xA4, // normal display
+            0xA8,
+            0x3F, // multiplex 64
+            0xAD,
+            0x8E, // master configuration: external VCC
+            0xB0,
+            0x0B, // power save off
+            0xB1,
+            0x74, // phase 1 and 2 periods
+            0xB3,
+            0xD0, // clock divide and oscillator
+            0x8A,
+            0x80,
+            0x8B,
+            0x80,
+            0x8C,
+            0x80, // precharge speed A, B, C
+            0xBB,
+            0x3E, // precharge voltage
+            0xBE,
+            0x3E, // VCOMH
+            0x87,
+            0x0F, // master current at full
+            0x81,
+            0xFF,
+            0x82,
+            0xFF,
+            0x83,
+            0xFF, // contrast A, B, C
+        ])
+    }
+
+    pub fn show(link: &Link, entry: &Entry, frame: &[u8]) -> io::Result<()> {
+        debug_assert_eq!(entry.format(), Format::Rgb565);
+        link.command(&[
+            0x15,
+            0x00,
+            (entry.width - 1) as u8,
+            0x75,
+            0x00,
+            (entry.height - 1) as u8,
+        ])?;
+        link.data(frame)
     }
 }
 

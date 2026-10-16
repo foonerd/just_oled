@@ -197,6 +197,15 @@ fn show_test(config: &str, hold: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// An entry's standing in one word: drawn on a module, described, or not yet driven.
+fn status(e: &Entry) -> &'static str {
+    if !justoled::oled::driven_entry(e) {
+        "not yet driven"
+    } else {
+        e.verified.name()
+    }
+}
+
 /// The catalogue as a table, one line per panel.
 fn list_text() -> String {
     let mut out = String::new();
@@ -213,7 +222,7 @@ fn list_text() -> String {
             e.format().name(),
             buses(e),
             addresses(e),
-            e.verified.name()
+            status(e)
         ));
     }
     out
@@ -246,7 +255,7 @@ fn list_json() -> String {
         let buses: Vec<String> = e.buses.iter().map(|b| json_str(b.name())).collect();
         let addrs: Vec<String> = e.i2c_addresses.iter().map(|a| a.to_string()).collect();
         out.push_str(&format!(
-            "  {{\"id\":{},\"controller\":{},\"width\":{},\"height\":{},\"format\":{},\"buses\":[{}],\"i2c_addresses\":[{}],\"verified\":{},\"note\":{}}}{}\n",
+            "  {{\"id\":{},\"controller\":{},\"width\":{},\"height\":{},\"format\":{},\"buses\":[{}],\"i2c_addresses\":[{}],\"verified\":{},\"driven\":{},\"note\":{}}}{}\n",
             json_str(e.id),
             json_str(e.controller.name()),
             e.width,
@@ -255,6 +264,7 @@ fn list_json() -> String {
             buses.join(","),
             addrs.join(","),
             json_str(e.verified.name()),
+            justoled::oled::driven_entry(e),
             json_str(e.note),
             if i + 1 < catalog::ENTRIES.len() { "," } else { "" }
         ));

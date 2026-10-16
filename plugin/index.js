@@ -493,10 +493,11 @@ function stateForDaemon(state) {
 }
 
 // The select's options from the daemon's catalogue: the id as the value,
-// the chip and size as the label.
+// the chip and size as the label. An entry the binary cannot drive yet is
+// left out rather than offered as a dead end.
 function panelOptions(entries) {
     return (Array.isArray(entries) ? entries : [])
-        .filter(function (e) { return e && typeof e.id === 'string'; })
+        .filter(function (e) { return e && typeof e.id === 'string' && e.driven !== false; })
         .map(function (e) {
             return { value: e.id, label: e.controller + ' ' + e.width + 'x' + e.height + (e.verified === 'verified' ? '' : ' (described)') };
         });

@@ -32,10 +32,11 @@ test('the addresses in an i2cdetect table are read, the blanks and UU skipped', 
     assert.deepEqual(parseI2cdetect(''), []);
 });
 
-test('the panel select is built from the daemon catalogue, described entries marked', () => {
+test('the panel select is built from the daemon catalogue, described entries marked, undriven ones left out', () => {
     const entries = [
-        { id: 'ssd1306_128x64', controller: 'SSD1306', width: 128, height: 64, verified: 'verified' },
-        { id: 'sh1106_128x64', controller: 'SH1106', width: 128, height: 64, verified: 'described' },
+        { id: 'ssd1306_128x64', controller: 'SSD1306', width: 128, height: 64, verified: 'verified', driven: true },
+        { id: 'sh1106_128x64', controller: 'SH1106', width: 128, height: 64, verified: 'described', driven: true },
+        { id: 'ch1120_128x128', controller: 'CH1120', width: 128, height: 128, verified: 'described', driven: false },
         { nope: true },
     ];
     assert.deepEqual(panelOptions(entries), [
