@@ -4,7 +4,7 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-- `ssd1309_128x64` verified on a 2.42" module over SPI (the first one-bit controller on the bench): the test picture to all four corners, the playing page at 25 fps, 1.1 ms a frame.
+- `ssd1309_128x64` verified on a 2.42" module over SPI (the first one-bit controller on the bench): the test picture to all four corners, the playing page at 25 fps, 1.1 ms a frame. Then over I2C at 0x3C on the header bus (the first I2C panel): 10.7 fps at 95 ms a frame, the 100 kHz bus's ceiling.
 
 ## [0.1.2] - 2026-10-16
 
