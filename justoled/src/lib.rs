@@ -14,11 +14,16 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod json;
 
-#[cfg(feature = "tap")]
+// The ring is the contract between the tap and the daemon, so it and the
+// bank's shape (which the ring's header carries) come with either feature.
+#[cfg(any(feature = "tap", feature = "display"))]
 pub mod fft;
 
-#[cfg(feature = "tap")]
+#[cfg(any(feature = "tap", feature = "display"))]
 pub mod bank;
+
+#[cfg(any(feature = "tap", feature = "display"))]
+pub mod ring;
 
 #[cfg(feature = "tap")]
 pub mod analysis;
@@ -30,8 +35,6 @@ pub mod dsd;
 pub mod measure;
 #[cfg(feature = "tap")]
 pub mod relay;
-#[cfg(feature = "tap")]
-pub mod ring;
 #[cfg(feature = "tap")]
 pub mod sample;
 

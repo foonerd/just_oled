@@ -406,8 +406,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 128,
         buses: SPI,
         i2c_addresses: NONE,
-        verified: Verified::Described,
-        note: "1.5\" colour modules: Waveshare 1.5inch RGB OLED Module, Adafruit 1431, Newhaven NHD-1.5-128128UGC3.",
+        verified: Verified::Bench,
+        note: "1.5\" colour modules: Waveshare 1.5inch RGB OLED Module (on the bench), Adafruit 1431, Newhaven NHD-1.5-128128UGC3.",
     },
     Entry {
         id: "ssd1351_128x96",

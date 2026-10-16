@@ -558,6 +558,18 @@ impl Reader {
         }
         None
     }
+
+    /// The hops published after `after`, oldest first, as many as the
+    /// ring still holds; a reader that fell far behind gets the newest.
+    pub fn since(&self, after: u64) -> Vec<Frame> {
+        let latest = self.map.atomic_u64(H_SEQ).load(Ordering::Acquire);
+        if latest == 0 || after >= latest {
+            return Vec::new();
+        }
+        let oldest = latest.saturating_sub(self.info.slots as u64 - 1).max(1);
+        let first = (after + 1).max(oldest);
+        (first..=latest).filter_map(|seq| self.slot(seq)).collect()
+    }
 }
 
 #[cfg(test)]
@@ -654,6 +666,12 @@ mod tests {
         assert!(reader.slot(7).is_some());
         assert!(reader.slot(4).is_some());
         assert!(reader.slot(3).is_none(), "overwritten");
+        // Since 5: hops 6 and 7. Since 0, far behind: the four the ring holds.
+        let since: Vec<u64> = reader.since(5).iter().map(|f| f.seq).collect();
+        assert_eq!(since, vec![6, 7]);
+        let since: Vec<u64> = reader.since(0).iter().map(|f| f.seq).collect();
+        assert_eq!(since, vec![4, 5, 6, 7]);
+        assert!(reader.since(7).is_empty());
         assert_eq!(Reader::find(&dir).len(), 1);
         assert!(Reader::open_live(&dir).is_some());
         let path = writer.path().to_path_buf();

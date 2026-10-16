@@ -17,6 +17,14 @@ pub struct Settings {
     pub entry: &'static Entry,
     pub wiring: Wiring,
     pub rotate: Rotate,
+    /// Whether the boot, ready, pause and farewell texts are shown.
+    pub show_lifecycle: bool,
+    /// Each text as its rows, `|` splitting them.
+    pub text_boot: Vec<String>,
+    pub text_ready: Vec<String>,
+    pub text_pause: Vec<String>,
+    pub text_shutdown: Vec<String>,
+    pub text_reboot: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -88,11 +96,26 @@ impl Settings {
             }
         };
         let rotate = Rotate::from_degrees(store.number("rotate").unwrap_or(0.0) as i64);
+        let text = |key: &str, default: &str| -> Vec<String> {
+            let t = store.string(key).unwrap_or_else(|| default.to_string());
+            t.split('|').map(|s| s.trim().to_string()).collect()
+        };
         Ok(Settings {
             entry,
             wiring,
             rotate,
+            show_lifecycle: store.boolean("show_lifecycle").unwrap_or(true),
+            text_boot: text("text_boot", "Volumio|booting..."),
+            text_ready: text("text_ready", "Volumio|ready"),
+            text_pause: text("text_pause", "Paused|waiting on music"),
+            text_shutdown: text("text_shutdown", "Volumio|shutting down"),
+            text_reboot: text("text_reboot", "Volumio|restarting"),
         })
+    }
+
+    /// Whether `other` needs the panel opened anew: another panel or another wiring.
+    pub fn needs_reopen(&self, other: &Settings) -> bool {
+        !std::ptr::eq(self.entry, other.entry) || self.wiring != other.wiring
     }
 }
 

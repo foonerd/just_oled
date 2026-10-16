@@ -72,16 +72,20 @@ impl Link {
     fn open(entry: &Entry, wiring: &Wiring) -> io::Result<Link> {
         let chip =
             || gpio::Chip::header().ok_or_else(|| io::Error::other("no GPIO chip under /dev"));
+        let named = |what: String, e: io::Error| io::Error::new(e.kind(), format!("{what}: {e}"));
         match *wiring {
             Wiring::Spi { bus, cs, dc, reset } => {
                 let (mode, speed) = spi_settings(entry.controller);
-                let dev = spi::Device::open(bus, cs, mode, speed)?;
+                let dev = spi::Device::open(bus, cs, mode, speed)
+                    .map_err(|e| named(format!("/dev/spidev{bus}.{cs}"), e))?;
                 let chip = chip()?;
                 let lines = match reset {
                     Some(rst) => {
-                        gpio::Outputs::request(&chip.path, &[dc, rst], &[false, true], CONSUMER)?
+                        gpio::Outputs::request(&chip.path, &[dc, rst], &[false, true], CONSUMER)
+                            .map_err(|e| named(format!("{} lines {dc} and {rst}", chip.path), e))?
                     }
-                    None => gpio::Outputs::request(&chip.path, &[dc], &[false], CONSUMER)?,
+                    None => gpio::Outputs::request(&chip.path, &[dc], &[false], CONSUMER)
+                        .map_err(|e| named(format!("{} line {dc}", chip.path), e))?,
                 };
                 Ok(Link::Spi {
                     dev,
@@ -90,14 +94,16 @@ impl Link {
                 })
             }
             Wiring::I2c { bus, addr, reset } => {
-                let dev = i2c::Device::open(bus, addr)?;
+                let dev = i2c::Device::open(bus, addr)
+                    .map_err(|e| named(format!("/dev/i2c-{bus} address {addr:#04x}"), e))?;
                 let reset = match reset {
-                    Some(rst) => Some(gpio::Outputs::request(
-                        &chip()?.path,
-                        &[rst],
-                        &[true],
-                        CONSUMER,
-                    )?),
+                    Some(rst) => {
+                        let chip = chip()?;
+                        Some(
+                            gpio::Outputs::request(&chip.path, &[rst], &[true], CONSUMER)
+                                .map_err(|e| named(format!("{} line {rst}", chip.path), e))?,
+                        )
+                    }
                     None => None,
                 };
                 Ok(Link::I2c { dev, reset })

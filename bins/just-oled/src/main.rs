@@ -1,14 +1,23 @@
-//! The display daemon. This build answers `--version`, `--help`, `--list`
-//! (the catalogue, as text or JSON), `--probe` (the machine's buses and
-//! the settings, side by side) and `--test` (the test picture on the
-//! configured panel); the ring reader, the control socket and the pages
-//! arrive stage by stage.
+//! The display daemon. Run without arguments it is the service: it opens
+//! the configured panel, shows the lifecycle texts, follows the player
+//! through the plugin's control socket and the audio tap's ring, and
+//! draws the pages. The flags are the tools around it: `--list` (the
+//! catalogue), `--probe` (the machine's buses beside the settings),
+//! `--test` (the test picture), `--say` and `--ping` (talk to the
+//! running daemon).
 
+mod control;
+mod daemon;
+mod lifecycle;
+mod meter;
+mod pages;
 mod pattern;
 mod probe;
 mod settings;
 
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use justoled::catalog::{self, Entry};
@@ -19,11 +28,15 @@ use settings::Settings;
 const USAGE: &str = "\
 just-oled: the Just OLED display daemon
 
+  just-oled                   run the daemon (what the service does)
   just-oled --list [--json]   every panel the daemon knows
   just-oled --probe           the buses and chips this machine has, and the settings
   just-oled --test [--hold S] the test picture on the configured panel, held S seconds
                               (default 10; 0 leaves it up)
+  just-oled --say \"row 1|row 2\" [--hold S]   a message on the running daemon's panel
+  just-oled --ping            ask the running daemon how it is
   just-oled --config PATH     read the settings from PATH rather than Volumio's store
+  just-oled --socket PATH     the control socket (default under /run/just-oled, else /tmp)
   just-oled --version
   just-oled --help
 ";
@@ -54,16 +67,26 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let config = value("--config").unwrap_or_else(|| settings::DEFAULT_PATH.to_string());
+    let socket = value("--socket")
+        .map(PathBuf::from)
+        .unwrap_or_else(control::default_path);
     if has("--probe") {
         let loaded = load_settings(&config);
         print!("{}", probe::report(loaded.as_ref().map_err(String::as_str)));
         return ExitCode::SUCCESS;
     }
+    let hold = value("--hold").and_then(|s| s.parse::<u64>().ok());
     if has("--test") {
-        let hold = value("--hold")
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(10);
-        return match show_test(&config, hold) {
+        // A running daemon owns the panel: it draws the picture; else this process does.
+        let message = format!(
+            r#"{{"kind":"test","hold_ms":{}}}"#,
+            hold.map_or(10_000, |s| if s == 0 { 600_000 } else { s * 1000 })
+        );
+        if control::send(&socket, &message, false).is_ok() {
+            println!("just-oled: test picture asked of the running daemon");
+            return ExitCode::SUCCESS;
+        }
+        return match show_test(&config, hold.unwrap_or(10)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("just-oled: {e}");
@@ -71,13 +94,73 @@ fn main() -> ExitCode {
             }
         };
     }
-    if args.is_empty() {
-        eprintln!("just-oled: the daemon proper is not in this build; see --help");
-        return ExitCode::from(2);
+    if let Some(text) = value("--say") {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(
+            "kind".to_string(),
+            justoled::json::Value::String("message".into()),
+        );
+        m.insert("text".to_string(), justoled::json::Value::String(text));
+        m.insert(
+            "hold_ms".to_string(),
+            justoled::json::Value::Number((hold.unwrap_or(3) * 1000) as f64),
+        );
+        return client(&socket, &justoled::json::Value::Object(m).to_json(), false);
+    }
+    if has("--ping") {
+        return client(&socket, r#"{"kind":"ping"}"#, true);
+    }
+    // With only the paths given, or nothing, it is the service.
+    let mut rest = args.clone();
+    for flag in ["--config", "--socket"] {
+        if let Some(i) = rest.iter().position(|a| a == flag) {
+            rest.drain(i..(i + 2).min(rest.len()));
+        }
+    }
+    if rest.is_empty() {
+        return run(&config, &socket);
     }
     eprintln!("just-oled: unknown arguments: {}", args.join(" "));
     eprint!("{USAGE}");
     ExitCode::from(2)
+}
+
+/// The service: the socket up, the loop until told to leave. Settings
+/// that are not there yet (the plugin not turned on) are waited for.
+fn run(config: &str, socket: &std::path::Path) -> ExitCode {
+    lifecycle::install();
+    pages::tzset_now();
+    daemon::log(&format!(
+        "{} starting: settings {config}, socket {}, rings under {}",
+        justoled::VERSION,
+        socket.display(),
+        daemon::ring_dir().display()
+    ));
+    let mut d = daemon::Daemon::new(None, PathBuf::from(config), daemon::ring_dir());
+    d.reload();
+    let (tx, rx) = mpsc::channel();
+    if let Err(e) = control::serve(socket, tx, d.report.clone()) {
+        eprintln!("just-oled: control socket {}: {e}", socket.display());
+        return ExitCode::FAILURE;
+    }
+    d.run(rx);
+    let _ = std::fs::remove_file(socket);
+    ExitCode::SUCCESS
+}
+
+/// One line to the running daemon; the answer printed when one is due.
+fn client(socket: &std::path::Path, message: &str, reply: bool) -> ExitCode {
+    match control::send(socket, message, reply) {
+        Ok(Some(answer)) => {
+            println!("{answer}");
+            ExitCode::SUCCESS
+        }
+        Ok(None) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("just-oled: {}: {e}", socket.display());
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn load_settings(path: &str) -> Result<Settings, String> {
