@@ -1,15 +1,29 @@
-//! The display daemon. This build answers `--version`, `--help` and
-//! `--list` (the catalogue, as text or JSON); the ring reader, the control
-//! socket, the pages and the drivers arrive stage by stage.
+//! The display daemon. This build answers `--version`, `--help`, `--list`
+//! (the catalogue, as text or JSON), `--probe` (the machine's buses and
+//! the settings, side by side) and `--test` (the test picture on the
+//! configured panel); the ring reader, the control socket and the pages
+//! arrive stage by stage.
+
+mod pattern;
+mod probe;
+mod settings;
 
 use std::process::ExitCode;
+use std::time::Duration;
 
 use justoled::catalog::{self, Entry};
+use justoled::oled::Oled;
+
+use settings::Settings;
 
 const USAGE: &str = "\
 just-oled: the Just OLED display daemon
 
   just-oled --list [--json]   every panel the daemon knows
+  just-oled --probe           the buses and chips this machine has, and the settings
+  just-oled --test [--hold S] the test picture on the configured panel, held S seconds
+                              (default 10; 0 leaves it up)
+  just-oled --config PATH     read the settings from PATH rather than Volumio's store
   just-oled --version
   just-oled --help
 ";
@@ -17,6 +31,12 @@ just-oled: the Just OLED display daemon
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let has = |flag: &str| args.iter().any(|a| a == flag);
+    let value = |flag: &str| {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
     if has("--help") || has("-h") {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
@@ -33,6 +53,24 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
+    let config = value("--config").unwrap_or_else(|| settings::DEFAULT_PATH.to_string());
+    if has("--probe") {
+        let loaded = load_settings(&config);
+        print!("{}", probe::report(loaded.as_ref().map_err(String::as_str)));
+        return ExitCode::SUCCESS;
+    }
+    if has("--test") {
+        let hold = value("--hold")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(10);
+        return match show_test(&config, hold) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("just-oled: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.is_empty() {
         eprintln!("just-oled: the daemon proper is not in this build; see --help");
         return ExitCode::from(2);
@@ -40,6 +78,40 @@ fn main() -> ExitCode {
     eprintln!("just-oled: unknown arguments: {}", args.join(" "));
     eprint!("{USAGE}");
     ExitCode::from(2)
+}
+
+fn load_settings(path: &str) -> Result<Settings, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    Settings::parse(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+/// Open the configured panel, draw the test picture, hold it, then blank
+/// and switch the display off; `hold` 0 leaves the picture up.
+fn show_test(config: &str, hold: u64) -> Result<(), String> {
+    let s = load_settings(config)?;
+    let mut oled =
+        Oled::open(s.entry, &s.wiring).map_err(|e| format!("open {}: {e}", s.entry.id))?;
+    oled.init()
+        .map_err(|e| format!("init {}: {e}", s.entry.id))?;
+    let mut canvas = oled.canvas().with_rotate(s.rotate);
+    pattern::draw(&mut canvas);
+    let started = std::time::Instant::now();
+    oled.show(&canvas).map_err(|e| format!("show: {e}"))?;
+    println!(
+        "just-oled: test picture on {} ({}x{}) via {:?}, frame sent in {:.1} ms",
+        s.entry.id,
+        s.entry.width,
+        s.entry.height,
+        s.wiring,
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    if hold > 0 {
+        std::thread::sleep(Duration::from_secs(hold));
+        canvas.clear();
+        oled.show(&canvas).map_err(|e| format!("clear: {e}"))?;
+        oled.off().map_err(|e| format!("off: {e}"))?;
+    }
+    Ok(())
 }
 
 /// The catalogue as a table, one line per panel.

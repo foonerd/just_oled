@@ -37,3 +37,12 @@ pub mod sample;
 
 #[cfg(feature = "display")]
 pub mod catalog;
+
+#[cfg(feature = "display")]
+pub mod canvas;
+
+#[cfg(feature = "display")]
+pub mod oled;
+
+#[cfg(feature = "display")]
+pub mod sys;
