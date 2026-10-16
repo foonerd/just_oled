@@ -378,47 +378,89 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
     // The text rows: the title at the foot, as mpd_oled, what else the
     // choice asks for above it.
     let full = look.text == TrackText::Full;
-    let title_font = if full && h >= 120 { MEDIUM } else { SMALL };
-    let with_album = full && h >= 120;
-    let with_artist = full;
-    let with_line = look.text == TrackText::Compact;
-    let text_h = title_font.line_height as i32
-        + [with_album, with_artist, with_line]
-            .iter()
-            .filter(|&&on| on)
-            .count() as i32
-            * small;
+    let mut title_font = if full && h >= 120 { MEDIUM } else { SMALL };
+    let mut with_album = full && h >= 120;
+    let mut with_artist = full;
+    let mut with_line = look.text == TrackText::Compact;
 
     // The info items and the rows they take across the panel: one when
     // they fit, two otherwise (format with the icons, then the time),
     // none when only the icons are left, which ride in the title row.
-    let format_on = look.show_format;
+    let mut format_on = look.show_format;
     let time_on = look.time != TimeDisplay::Off;
-    let format_w = if format_on {
-        SMALL.width("44.1k 16b") + 3
-    } else {
-        0
-    };
     let time_w = match look.time {
         TimeDisplay::Off => 0,
         TimeDisplay::ElapsedTotal => SMALL.width("00:00 / 00:00") + 3,
         _ => SMALL.width("-00:00") + 3,
     };
-    let info_rows = if !format_on && !time_on {
-        0
-    } else if format_w + time_w + ICONS_W <= w {
-        1
-    } else {
-        1 + time_on as i32
+    let format_width = |on: bool| if on { SMALL.width("44.1k 16b") + 3 } else { 0 };
+    let rows_for = |format_on: bool| -> i32 {
+        if !format_on && !time_on {
+            0
+        } else if format_width(format_on) + time_w + ICONS_W <= w {
+            1
+        } else {
+            1 + time_on as i32
+        }
     };
-    let gap = 3;
-    let stacked_meter_h = body_h - text_h - info_rows * small - gap * (1 + (info_rows > 0) as i32);
+    let mut gap = 3;
+    let stacked_h = |title_font: &Font, extra_rows: i32, info_rows: i32, gap: i32| {
+        body_h
+            - title_font.line_height as i32
+            - extra_rows * small
+            - info_rows * small
+            - gap * (1 + (info_rows > 0) as i32)
+    };
+    let extra = |a: bool, b: bool, c: bool| [a, b, c].iter().filter(|&&on| on).count() as i32;
+
+    // Across the panel: the meter keeps at least the upper half, the rows
+    // give way from the top (album, artist, the artist · album row, then
+    // the format's row, the larger title, the gaps) until the rest fits.
+    if look.wide_meter {
+        let floor = body_h / 2;
+        loop {
+            let left = stacked_h(
+                title_font,
+                extra(with_album, with_artist, with_line),
+                rows_for(format_on),
+                gap,
+            );
+            if left >= floor {
+                break;
+            }
+            if with_album {
+                with_album = false;
+            } else if with_artist {
+                with_artist = false;
+            } else if with_line {
+                with_line = false;
+            } else if format_on && rows_for(format_on) > 1 {
+                format_on = false;
+            } else if title_font.line_height != SMALL.line_height {
+                title_font = SMALL;
+            } else if gap > 0 {
+                gap = 0;
+            } else {
+                break;
+            }
+        }
+    }
+
+    let format_w = format_width(format_on);
+    let info_rows = rows_for(format_on);
+    let text_h = title_font.line_height as i32 + extra(with_album, with_artist, with_line) * small;
+    let stacked_meter_h = stacked_h(
+        title_font,
+        extra(with_album, with_artist, with_line),
+        info_rows,
+        gap,
+    );
 
     let mut lay = Layout {
         progress,
         ..Layout::default()
     };
-    let text_top = if stacked_meter_h >= MIN_METER_H || w < 96 {
+    let text_top = if look.wide_meter || stacked_meter_h >= MIN_METER_H || w < 96 {
         // Stacked: the meter across the panel, the info rows, the text.
         let meter_h = stacked_meter_h.max(8);
         lay.meter = Some(Rect {
@@ -674,6 +716,9 @@ pub struct Look {
     pub show_ip: bool,
     /// The colours on a colour panel.
     pub theme: Theme,
+    /// The meter across the panel's width and at least its upper half,
+    /// the rows making do with the rest.
+    pub wide_meter: bool,
 }
 
 impl Default for Look {
@@ -687,6 +732,7 @@ impl Default for Look {
             gain_db: 0,
             show_ip: true,
             theme: Theme::default(),
+            wide_meter: false,
         }
     }
 }
@@ -1339,6 +1385,25 @@ mod tests {
         assert_eq!(l.meter.unwrap().w, 128);
         assert!(l.meter.unwrap().h >= 40, "{l:?}");
         assert_eq!(bar_count(128, 64, &bare), 32);
+        // Across the panel: the meter keeps the upper half whatever is on;
+        // the artist · album row and the format give way, the time stays.
+        let wide = Look {
+            wide_meter: true,
+            ..Look::default()
+        };
+        let l = layout(128, 64, Face::Spectrum, &wide);
+        let m = l.meter.unwrap();
+        assert_eq!((m.w, m.h), (128, 32), "{l:?}");
+        assert!(l.line.is_none() && l.title.is_some() && l.time.is_some());
+        let (t, s) = (l.time.unwrap(), l.status.unwrap());
+        assert_eq!(t.y, s.y, "time and icons on one row");
+        assert_eq!(s.w, ICONS_W, "no room for the format");
+        assert_eq!(bar_count(128, 64, &wide), 32);
+        let l = layout(256, 64, Face::Spectrum, &wide);
+        assert_eq!(l.meter.unwrap().w, 256);
+        assert_eq!(bar_count(256, 64, &wide), 64);
+        let l = layout(128, 128, Face::Spectrum, &wide);
+        assert!(l.meter.unwrap().h >= 62, "{l:?}");
         let l = layout(128, 96, Face::Spectrum, &full);
         assert!(l.meter.unwrap().h >= 20, "{l:?}");
         let (title, _) = l.title.unwrap();

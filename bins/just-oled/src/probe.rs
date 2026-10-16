@@ -21,6 +21,18 @@ fn catalogue_addresses() -> Vec<u8> {
     all
 }
 
+/// The bus clock the device tree gave an I2C adapter, in kHz, as sysfs
+/// exposes the node's `clock-frequency` (a big-endian cell); `None` off a
+/// device-tree machine or for a software bus.
+fn i2c_clock_khz(bus: u8) -> Option<u32> {
+    let bytes = std::fs::read(format!(
+        "/sys/class/i2c-adapter/i2c-{bus}/of_node/clock-frequency"
+    ))
+    .ok()?;
+    let cell: [u8; 4] = bytes.get(..4)?.try_into().ok()?;
+    Some(u32::from_be_bytes(cell) / 1000)
+}
+
 pub fn report(settings: Result<&Settings, &str>) -> String {
     let mut out = String::new();
 
@@ -35,9 +47,10 @@ pub fn report(settings: Result<&Settings, &str>) -> String {
             .filter(|&a| i2c::Device::present(bus, a))
             .map(|a| format!("{a:#04x}"))
             .collect();
+        let clock = i2c_clock_khz(bus).map_or(String::new(), |k| format!(" ({k} kHz)"));
         let _ = writeln!(
             out,
-            "  /dev/i2c-{bus}: {}",
+            "  /dev/i2c-{bus}{clock}: {}",
             if found.is_empty() {
                 "no panel at a catalogued address".to_string()
             } else {

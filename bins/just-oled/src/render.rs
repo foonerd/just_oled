@@ -70,11 +70,18 @@ fn looks() -> Vec<(&'static str, Look)> {
             "spectrum-bare",
             with(Face::Spectrum, TrackText::Title, TimeDisplay::Off, false),
         ),
+        (
+            "spectrum-wide",
+            Look {
+                wide_meter: true,
+                ..Look::default()
+            },
+        ),
     ]
 }
 
 /// Scenes written per class: the lifecycle texts, the looks, the standby pages.
-const SCENES_PER_CLASS: usize = 6 + 10 + 3;
+const SCENES_PER_CLASS: usize = 6 + 11 + 3;
 
 fn bars_for(width: u16, height: u16, look: &Look) -> Bars {
     let mut bars = Bars::new(pages::bar_count(width, height, look));

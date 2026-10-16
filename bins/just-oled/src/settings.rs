@@ -133,6 +133,7 @@ impl Settings {
                 .map_or(0, |n| n.round() as i32)
                 .clamp(-GAIN_DB_RANGE, GAIN_DB_RANGE),
             show_ip: store.boolean("show_ip").unwrap_or(true),
+            wide_meter: store.boolean("meter_wide").unwrap_or(false),
             theme: {
                 let name = one_of("theme", THEMES);
                 if name == "custom" {
@@ -269,6 +270,7 @@ mod tests {
             ("theme", "\"custom\""),
             ("colour_title", "\"#ff8000\""),
             ("colour_bar_low", "\"nonsense\""),
+            ("meter_wide", "true"),
         ]);
         let s = Settings::parse(&text).expect("parses");
         assert_eq!(
@@ -285,6 +287,7 @@ mod tests {
                     title: Colour::rgb(255, 128, 0),
                     ..Theme::default()
                 },
+                wide_meter: true,
             }
         );
         assert!(!s.idle_clock);
