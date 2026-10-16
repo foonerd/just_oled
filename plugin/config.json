@@ -47,6 +47,10 @@
         "type": "string",
         "value": "spectrum"
     },
+    "track_text": {
+        "type": "string",
+        "value": "compact"
+    },
     "time_display": {
         "type": "string",
         "value": "elapsed_total"

@@ -18,6 +18,7 @@
                 "label": "TRANSLATE.JUSTOLED.SAVE",
                 "data": [
                     "face",
+                    "track_text",
                     "time_display",
                     "show_format",
                     "peaks",
@@ -58,6 +59,30 @@
                         {
                             "value": "meter",
                             "label": "TRANSLATE.JUSTOLED.FACE_METER"
+                        }
+                    ]
+                },
+                {
+                    "id": "track_text",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.TRACK_TEXT",
+                    "doc": "TRANSLATE.JUSTOLED.TRACK_TEXT_DOC",
+                    "value": {
+                        "value": "compact",
+                        "label": "TRANSLATE.JUSTOLED.TRACK_TEXT_COMPACT"
+                    },
+                    "options": [
+                        {
+                            "value": "compact",
+                            "label": "TRANSLATE.JUSTOLED.TRACK_TEXT_COMPACT"
+                        },
+                        {
+                            "value": "full",
+                            "label": "TRANSLATE.JUSTOLED.TRACK_TEXT_FULL"
+                        },
+                        {
+                            "value": "title",
+                            "label": "TRANSLATE.JUSTOLED.TRACK_TEXT_TITLE"
                         }
                     ]
                 },
