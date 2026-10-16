@@ -2,7 +2,9 @@
 
 Spectrum, VU bars, the track and a clock on a small OLED, moving with the music on a Volumio player. A Volumio plugin written in Rust for the whole family of I2C and SPI OLED modules, monochrome, greyscale and colour: an audio tap in the player's ALSA chain measures every source, files, radio, streaming, AirPlay and Spotify alike, without touching the sound; a small daemon draws the pages, shows the player's state, a standby clock and date, and says when the system boots, restarts and shuts down.
 
-The workspace version is **0.1.0**. This is the first build: the catalogue, the plugin's shape and the build path are in; the tap, the drivers and the pages arrive stage by stage, and nothing is on a panel yet. The [wiki](https://github.com/foonerd/just_oled/wiki) says what is verified on a module and what is described from the data sheet.
+The face is the user's: the spectrum, the stereo spectrum, the spectrum with left and right levels, the levels alone, the track alone in larger type, or the spectrum across the whole panel; the track's time played, remaining or none; the sample rate and bit depth; peak marks; a meter gain for quiet and loud recordings. Standby shows the time and date in the formats the user picks, with the player's address, and goes dark after a chosen while. Every page lays itself out for the panel it is on, from a 128x32 strip to a 256x64 grey or a 128x128 colour module.
+
+The workspace version is **0.1.0**: the tap, the drivers for the one-bit, grey and colour controllers, the pages and the plugin are in; one module (the Waveshare 1.5" RGB, SSD1351) has been seen working, the rest are driven from the data sheets and wait for a bench. The [wiki](https://github.com/foonerd/just_oled/wiki) says what is verified on a module and what is described from the data sheet.
 
 ## Get it
 
