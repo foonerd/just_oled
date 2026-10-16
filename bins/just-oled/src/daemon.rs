@@ -155,6 +155,8 @@ pub struct Daemon {
     started: Instant,
     album: Marquee,
     artist: Marquee,
+    /// The artist and the album as one row.
+    line: Marquee,
     title: Marquee,
     net: Net,
     net_read_at: Instant,
@@ -168,8 +170,7 @@ fn bars_for(settings: Option<&Settings>) -> Bars {
     let Some(s) = settings else {
         return Bars::new(32);
     };
-    Bars::new(pages::bar_count(s.entry.width, s.entry.height, s.look.face))
-        .with_gain_db(s.look.gain_db)
+    Bars::new(pages::bar_count(s.entry.width, s.entry.height, &s.look)).with_gain_db(s.look.gain_db)
 }
 
 impl Daemon {
@@ -195,6 +196,7 @@ impl Daemon {
             started: now,
             album: Marquee::default(),
             artist: Marquee::default(),
+            line: Marquee::default(),
             title: Marquee::default(),
             net: Net::default(),
             net_read_at: now - NET_REFRESH,
@@ -310,6 +312,7 @@ impl Daemon {
                 self.track_at = now;
                 self.album.set(&self.track.album, now);
                 self.artist.set(&self.track.artist, now);
+                self.line.set(&pages::artist_album(&self.track), now);
                 self.title.set(&self.track.title, now);
                 if self.phase == Phase::Boot {
                     self.phase = Phase::Player;
@@ -456,6 +459,7 @@ impl Daemon {
             look: &s.look,
             album: &self.album,
             artist: &self.artist,
+            line: &self.line,
             title: &self.title,
             now,
         };

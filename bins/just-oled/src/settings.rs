@@ -10,7 +10,7 @@ use justoled::json::Store;
 use justoled::oled::Wiring;
 
 use crate::meter::GAIN_DB_RANGE;
-use crate::pages::{Face, Look, TimeDisplay, CLOCK_FORMATS, DATE_FORMATS};
+use crate::pages::{Face, Look, TimeDisplay, TrackText, CLOCK_FORMATS, DATE_FORMATS};
 
 /// Where Volumio keeps the plugin's store.
 pub const DEFAULT_PATH: &str = "/data/configuration/system_hardware/just_oled/config.json";
@@ -122,6 +122,7 @@ impl Settings {
         };
         let look = Look {
             face: Face::from_setting(&store.string("face").unwrap_or_default()),
+            text: TrackText::from_setting(&store.string("track_text").unwrap_or_default()),
             time: TimeDisplay::from_setting(&store.string("time_display").unwrap_or_default()),
             show_format: store.boolean("show_format").unwrap_or(true),
             peaks: store.boolean("peaks").unwrap_or(true),
@@ -230,6 +231,7 @@ mod tests {
             ("panel", "\"ssd1351_128x128\""),
             ("gpio_dc", "25"),
             ("face", "\"vu\""),
+            ("track_text", "\"full\""),
             ("time_display", "\"remaining\""),
             ("show_format", "false"),
             ("peaks", "false"),
@@ -245,6 +247,7 @@ mod tests {
             s.look,
             Look {
                 face: Face::Vu,
+                text: TrackText::Full,
                 time: TimeDisplay::Remaining,
                 show_format: false,
                 peaks: false,

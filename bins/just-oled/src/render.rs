@@ -14,7 +14,7 @@ use justoled::ring::Frame;
 use crate::control::{Status, Track};
 use crate::meter::Bars;
 use crate::net::{Connection, Net};
-use crate::pages::{self, Face, Look, Marquee, TimeDisplay, View};
+use crate::pages::{self, Face, Look, Marquee, TimeDisplay, TrackText, View};
 use crate::pattern;
 
 /// The panel classes the pages are laid out for.
@@ -26,21 +26,58 @@ const CLASSES: &[(&str, Format, u16, u16)] = &[
     ("96x64-rgb", Format::Rgb565, 96, 64),
 ];
 
-/// The faces, with the name each file carries.
-const FACES: &[(&str, Face)] = &[
-    ("spectrum", Face::Spectrum),
-    ("spectrum-stereo", Face::SpectrumStereo),
-    ("spectrum-vu", Face::SpectrumVu),
-    ("vu", Face::Vu),
-    ("text", Face::Text),
-    ("meter", Face::MeterOnly),
-];
+/// The faces at the default look, then the spectrum face as the other
+/// choices shape it; the name each file carries.
+fn looks() -> Vec<(&'static str, Look)> {
+    let with = |face: Face, text: TrackText, time: TimeDisplay, show_format: bool| Look {
+        face,
+        text,
+        time,
+        show_format,
+        ..Look::default()
+    };
+    let dflt = Look::default();
+    vec![
+        ("spectrum", with(Face::Spectrum, dflt.text, dflt.time, true)),
+        (
+            "spectrum-stereo",
+            with(Face::SpectrumStereo, dflt.text, dflt.time, true),
+        ),
+        (
+            "spectrum-vu",
+            with(Face::SpectrumVu, dflt.text, dflt.time, true),
+        ),
+        ("vu", with(Face::Vu, dflt.text, dflt.time, true)),
+        // The text face shows the time left, so the row is seen both ways.
+        (
+            "text",
+            with(Face::Text, dflt.text, TimeDisplay::Remaining, true),
+        ),
+        ("meter", with(Face::MeterOnly, dflt.text, dflt.time, true)),
+        (
+            "spectrum-full-text",
+            with(Face::Spectrum, TrackText::Full, dflt.time, true),
+        ),
+        (
+            "spectrum-title-only",
+            with(Face::Spectrum, TrackText::Title, dflt.time, true),
+        ),
+        (
+            "spectrum-no-format",
+            with(Face::Spectrum, dflt.text, dflt.time, false),
+        ),
+        (
+            "spectrum-bare",
+            with(Face::Spectrum, TrackText::Title, TimeDisplay::Off, false),
+        ),
+    ]
+}
 
-/// Scenes written per class: the lifecycle texts, the faces, the standby pages.
-const SCENES_PER_CLASS: usize = 6 + FACES.len() + 3;
+/// Scenes written per class: the lifecycle texts, the looks, the standby pages.
+const SCENES_PER_CLASS: usize = 6 + 10 + 3;
 
-fn bars_for(width: u16, height: u16, face: Face) -> Bars {
-    let mut bars = Bars::new(pages::bar_count(width, height, face));
+fn bars_for(width: u16, height: u16, look: &Look) -> Bars {
+    let mut bars = Bars::new(pages::bar_count(width, height, look));
     // A spectrum shape that reads as music: a bass hump and a presence
     // lift, the right channel a little quieter so the stereo faces differ.
     let shape = |gain: f32| -> Vec<f32> {
@@ -98,11 +135,11 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         ip: "192.168.1.23".into(),
     };
     let now = Instant::now();
-    let (mut album, mut artist, mut title) =
-        (Marquee::default(), Marquee::default(), Marquee::default());
-    album.set(&track.album, now);
-    artist.set(&track.artist, now);
-    title.set(&track.title, now);
+    let mut rows: [Marquee; 4] = Default::default();
+    rows[0].set(&track.album, now);
+    rows[1].set(&track.artist, now);
+    rows[2].set(&pages::artist_album(&track), now);
+    rows[3].set(&track.title, now);
     let date = "Thu 16 Oct 2026";
     let mut written = 0;
     for &(class, format, w, h) in CLASSES {
@@ -117,18 +154,8 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         pages::lines(&mut c, &["Volumio".into(), "ready".into()]);
         scenes.push(("ready".into(), c));
 
-        for &(name, face) in FACES {
-            let bars = bars_for(w, h, face);
-            let look = Look {
-                face,
-                // The text face shows the time left, so the row is seen both ways.
-                time: if face == Face::Text {
-                    TimeDisplay::Remaining
-                } else {
-                    TimeDisplay::ElapsedTotal
-                },
-                ..Look::default()
-            };
+        for (name, look) in looks() {
+            let bars = bars_for(w, h, &look);
             let view = View {
                 track: &track,
                 bars: &bars,
@@ -136,9 +163,10 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
                 elapsed_s: 83,
                 net: &net,
                 look: &look,
-                album: &album,
-                artist: &artist,
-                title: &title,
+                album: &rows[0],
+                artist: &rows[1],
+                line: &rows[2],
+                title: &rows[3],
                 now,
             };
             let mut c = fresh();
@@ -146,8 +174,8 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
             scenes.push((format!("face-{name}"), c));
         }
 
-        let silent = Bars::new(pages::bar_count(w, h, Face::Spectrum));
         let look = Look::default();
+        let silent = Bars::new(pages::bar_count(w, h, &look));
         let blind_view = View {
             track: &track,
             bars: &silent,
@@ -155,9 +183,10 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
             elapsed_s: 83,
             net: &net,
             look: &look,
-            album: &album,
-            artist: &artist,
-            title: &title,
+            album: &rows[0],
+            artist: &rows[1],
+            line: &rows[2],
+            title: &rows[3],
             now,
         };
         let mut c = fresh();
