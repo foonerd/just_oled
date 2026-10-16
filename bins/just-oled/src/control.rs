@@ -5,8 +5,8 @@
 //!
 //! From the plugin:
 //! - `{"kind":"state","status":"play|pause|stop","title":..,"artist":..,"album":..,
-//!   "service":..,"trackType":..,"samplerate":..,"bitdepth":..,"volume":N,"mute":B,
-//!   "seek":ms,"duration":s}`
+//!   "service":..,"trackType":..,"samplerate":..,"bitdepth":..,"bitrate":..,"volume":N,
+//!   "mute":B,"seek":ms,"duration":s}`
 //! - `{"kind":"ready"}` once the plugin has started
 //! - `{"kind":"message","lines":["row 1","row 2"],"hold_ms":2000}` or `"text":"row 1|row 2"`
 //! - `{"kind":"test","hold_ms":4000}`: the test picture, then back
@@ -65,6 +65,8 @@ pub struct Track {
     pub track_type: String,
     pub samplerate: String,
     pub bitdepth: String,
+    /// As Volumio reports it, "320 kbps"; empty when it does not.
+    pub bitrate: String,
     pub volume: i64,
     pub mute: bool,
     /// Milliseconds into the track.
@@ -135,6 +137,7 @@ pub fn parse(line: &str) -> Option<Command> {
             track_type: text("trackType"),
             samplerate: text("samplerate"),
             bitdepth: text("bitdepth"),
+            bitrate: text("bitrate"),
             volume: number("volume"),
             mute: v.get("mute").and_then(Value::as_bool).unwrap_or(false),
             seek: number("seek"),

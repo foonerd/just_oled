@@ -47,10 +47,11 @@ test('the panel select is built from the daemon catalogue, described entries mar
 });
 
 test('a pushState is reduced to what the daemon draws, with safe types', () => {
-    const out = stateForDaemon({ status: 'play', title: 'A', artist: null, volume: '42', mute: 'no', seek: 1200, duration: 300, extra: 1 });
+    const out = stateForDaemon({ status: 'play', title: 'A', artist: null, bitrate: '320 kbps', volume: '42', mute: 'no', seek: 1200, duration: 300, extra: 1 });
     assert.equal(out.kind, 'state');
     assert.equal(out.status, 'play');
     assert.equal(out.artist, '');
+    assert.equal(out.bitrate, '320 kbps');
     assert.equal(out.volume, 42);
     assert.equal(out.mute, false);
     assert.equal(out.seek, 1200);

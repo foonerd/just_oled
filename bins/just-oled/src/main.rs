@@ -10,6 +10,7 @@ mod control;
 mod daemon;
 mod lifecycle;
 mod meter;
+mod net;
 mod pages;
 mod pattern;
 mod probe;

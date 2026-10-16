@@ -20,7 +20,8 @@ use justoled::ring::{self, merge_hops, Reader};
 
 use crate::control::{Command, Farewell, Report, Status, Track};
 use crate::meter::Bars;
-use crate::pages;
+use crate::net::{self, Net};
+use crate::pages::{self, Marquee, View};
 use crate::pattern;
 use crate::settings::Settings;
 
@@ -150,10 +151,19 @@ pub struct Daemon {
     bars: Bars,
     phase: Phase,
     track: Track,
+    /// When the track's state arrived, to count the seek on from.
+    track_at: Instant,
     status_since: Instant,
     started: Instant,
+    artist: Marquee,
+    title: Marquee,
+    net: Net,
+    net_read_at: Instant,
     pub report: Arc<Mutex<Report>>,
 }
+
+/// How often the connection and address are read again.
+const NET_REFRESH: Duration = Duration::from_secs(10);
 
 impl Daemon {
     pub fn new(settings: Option<Settings>, settings_path: PathBuf, ring_dir: PathBuf) -> Daemon {
@@ -161,7 +171,7 @@ impl Daemon {
         let bars = Bars::new(
             settings
                 .as_ref()
-                .map_or(32, |s| pages::bar_count(s.entry.width)),
+                .map_or(32, |s| pages::bar_count(s.entry.width, s.entry.height)),
         );
         Daemon {
             settings,
@@ -177,14 +187,37 @@ impl Daemon {
             bars,
             phase: Phase::Boot,
             track: Track::default(),
+            track_at: now,
             status_since: now,
             started: now,
+            artist: Marquee::default(),
+            title: Marquee::default(),
+            net: Net::default(),
+            net_read_at: now - NET_REFRESH,
             report: Arc::new(Mutex::new(Report::default())),
         }
     }
 
     fn status(&self) -> Status {
         self.track.status
+    }
+
+    /// Seconds into the track: the last seek the player sent, counted on
+    /// while it plays.
+    fn elapsed_s(&self, now: Instant) -> i64 {
+        let mut ms = self.track.seek;
+        if self.track.status == Status::Play {
+            ms += now.duration_since(self.track_at).as_millis() as i64;
+        }
+        ms / 1000
+    }
+
+    /// The connection and address, read again every so often.
+    fn refresh_net(&mut self, now: Instant) {
+        if now.duration_since(self.net_read_at) >= NET_REFRESH {
+            self.net = net::read();
+            self.net_read_at = now;
+        }
     }
 
     /// Open the panel when there is none, no more often than the retry
@@ -270,6 +303,9 @@ impl Daemon {
                     }
                 }
                 self.track = *track;
+                self.track_at = now;
+                self.artist.set(&self.track.artist, now);
+                self.title.set(&self.track.title, now);
                 if self.phase == Phase::Boot {
                     self.phase = Phase::Player;
                 }
@@ -360,7 +396,7 @@ impl Daemon {
             .settings
             .as_ref()
             .is_some_and(|old| old.rotate != fresh.rotate);
-        self.bars = Bars::new(pages::bar_count(fresh.entry.width));
+        self.bars = Bars::new(pages::bar_count(fresh.entry.width, fresh.entry.height));
         self.settings = Some(fresh);
         if reopen {
             if let Some(mut p) = self.panel.take() {
@@ -397,6 +433,8 @@ impl Daemon {
             }
         }
         let ring_live = self.ring_live();
+        self.refresh_net(now);
+        let elapsed_s = self.elapsed_s(now);
         let (Some(panel), Some(s)) = (self.panel.as_mut(), self.settings.as_ref()) else {
             return;
         };
@@ -404,23 +442,33 @@ impl Daemon {
         let since = now.duration_since(self.status_since);
         let blind = status == Status::Play && !ring_live && since > NO_TAP_PATIENCE;
         let mut display_on = true;
+        let clock = pages::local_time();
+        let view = View {
+            track: &self.track,
+            bars: &self.bars,
+            blind,
+            elapsed_s,
+            clock,
+            net: &self.net,
+            artist: &self.artist,
+            title: &self.title,
+            now,
+        };
         match &self.phase {
             Phase::Boot if s.show_lifecycle => pages::lines(&mut panel.canvas, &s.text_boot),
             Phase::Boot => {
-                let (h, m) = pages::local_time();
-                pages::standby(&mut panel.canvas, h, m);
+                pages::standby(&mut panel.canvas, clock, &pages::local_date(), &self.net)
             }
             Phase::Ready { .. } => pages::lines(&mut panel.canvas, &s.text_ready),
             Phase::Message { lines, .. } => pages::lines(&mut panel.canvas, lines),
             Phase::Test { .. } => pattern::draw(&mut panel.canvas),
             Phase::Farewell => {}
             Phase::Player => match status {
-                Status::Play => pages::playing(&mut panel.canvas, &self.track, &self.bars, blind),
+                Status::Play => pages::playing(&mut panel.canvas, &view),
                 Status::Pause if s.show_lifecycle => pages::lines(&mut panel.canvas, &s.text_pause),
-                Status::Pause => pages::playing(&mut panel.canvas, &self.track, &self.bars, false),
+                Status::Pause => pages::playing(&mut panel.canvas, &view),
                 Status::Stop => {
-                    let (h, m) = pages::local_time();
-                    pages::standby(&mut panel.canvas, h, m);
+                    pages::standby(&mut panel.canvas, clock, &pages::local_date(), &self.net);
                     display_on = since < STANDBY_DARK;
                 }
             },

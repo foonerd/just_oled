@@ -485,6 +485,7 @@ function stateForDaemon(state) {
         trackType: text(state.trackType),
         samplerate: text(state.samplerate),
         bitdepth: text(state.bitdepth),
+        bitrate: text(state.bitrate),
         volume: typeof state.volume === 'number' ? state.volume : parseInt(state.volume, 10) || 0,
         mute: state.mute === true,
         seek: typeof state.seek === 'number' ? state.seek : 0,

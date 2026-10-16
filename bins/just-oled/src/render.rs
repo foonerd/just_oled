@@ -5,7 +5,7 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use justoled::canvas::Canvas;
 use justoled::catalog::Format;
@@ -13,7 +13,8 @@ use justoled::ring::Frame;
 
 use crate::control::{Status, Track};
 use crate::meter::Bars;
-use crate::pages;
+use crate::net::{Connection, Net};
+use crate::pages::{self, Marquee, View};
 use crate::pattern;
 
 /// The panel classes the pages are laid out for.
@@ -25,8 +26,8 @@ const CLASSES: &[(&str, Format, u16, u16)] = &[
     ("96x64-rgb", Format::Rgb565, 96, 64),
 ];
 
-fn bars_for(width: u16) -> Bars {
-    let mut bars = Bars::new(pages::bar_count(width));
+fn bars_for(width: u16, height: u16) -> Bars {
+    let mut bars = Bars::new(pages::bar_count(width, height));
     // A spectrum shape that reads as music: a bass hump and a presence lift.
     let bands: Vec<f32> = (0..64)
         .map(|i| {
@@ -70,11 +71,42 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         album: "Harvest Moon".into(),
         samplerate: "44.1 kHz".into(),
         bitdepth: "16 bit".into(),
+        bitrate: "1411 kbps".into(),
+        volume: 62,
+        seek: 83_000,
+        duration: 303,
         ..Track::default()
     };
+    let net = Net {
+        connection: Connection::Wifi(3),
+        ip: "192.168.1.23".into(),
+    };
+    let now = Instant::now();
+    let (mut artist, mut title) = (Marquee::default(), Marquee::default());
+    artist.set(&track.artist, now);
+    title.set(&track.title, now);
+    let date = "Thu 16 Oct 2026";
     let mut written = 0;
     for &(class, format, w, h) in CLASSES {
-        let bars = bars_for(w);
+        let bars = bars_for(w, h);
+        let silent = Bars::new(pages::bar_count(w, h));
+        // Two views, since a closure cannot tie its output to its argument's lifetime.
+        let view = View {
+            track: &track,
+            bars: &bars,
+            blind: false,
+            elapsed_s: 83,
+            clock: (20, 45),
+            net: &net,
+            artist: &artist,
+            title: &title,
+            now,
+        };
+        let blind_view = View {
+            bars: &silent,
+            blind: true,
+            ..view
+        };
         let mut scenes: Vec<(&str, Canvas)> = Vec::new();
         let fresh = || Canvas::new(format, w, h);
 
@@ -87,11 +119,11 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         scenes.push(("ready", c));
 
         let mut c = fresh();
-        pages::playing(&mut c, &track, &bars, false);
+        pages::playing(&mut c, &view);
         scenes.push(("playing", c));
 
         let mut c = fresh();
-        pages::playing(&mut c, &track, &Bars::new(pages::bar_count(w)), true);
+        pages::playing(&mut c, &blind_view);
         scenes.push(("playing-no-tap", c));
 
         let mut c = fresh();
@@ -99,7 +131,7 @@ pub fn render(dir: &Path) -> std::io::Result<usize> {
         scenes.push(("paused", c));
 
         let mut c = fresh();
-        pages::standby(&mut c, 20, 45);
+        pages::standby(&mut c, (20, 45), date, &net);
         scenes.push(("standby", c));
 
         let mut c = fresh();

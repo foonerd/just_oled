@@ -78,6 +78,8 @@ pub struct Canvas {
     height: u16,
     rotate: Rotate,
     bytes: Vec<u8>,
+    /// Pixels outside this box (x0, y0, x1, y1; x1 and y1 exclusive) are not set.
+    clip: Option<(i32, i32, i32, i32)>,
 }
 
 impl Canvas {
@@ -88,12 +90,22 @@ impl Canvas {
             height,
             rotate: Rotate::Normal,
             bytes: vec![0; format.frame_bytes(width, height)],
+            clip: None,
         }
     }
 
     pub fn with_rotate(mut self, rotate: Rotate) -> Canvas {
         self.rotate = rotate;
         self
+    }
+
+    /// Confine drawing to a box until `clear_clip`; `w` and `h` of zero or less clip everything.
+    pub fn set_clip(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        self.clip = Some((x, y, x + w, y + h));
+    }
+
+    pub fn clear_clip(&mut self) {
+        self.clip = None;
     }
 
     pub fn format(&self) -> Format {
@@ -161,10 +173,15 @@ impl Canvas {
         }
     }
 
-    /// Set one pixel; off the canvas is quietly ignored.
+    /// Set one pixel; off the canvas, or outside the clip box, is quietly ignored.
     pub fn set(&mut self, x: i32, y: i32, colour: Colour) {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
             return;
+        }
+        if let Some((x0, y0, x1, y1)) = self.clip {
+            if x < x0 || y < y0 || x >= x1 || y >= y1 {
+                return;
+            }
         }
         let (x, y) = match self.rotate {
             Rotate::Normal => (x as usize, y as usize),
@@ -450,6 +467,17 @@ mod tests {
         c.set(-1, 0, Colour::WHITE);
         c.set(8, 0, Colour::WHITE);
         assert_eq!(c.get(-1, 0), Colour::BLACK);
+        // A clip box keeps a fill inside it until cleared.
+        c.clear();
+        c.set_clip(2, 2, 3, 3);
+        c.fill_rect(0, 0, 8, 8, Colour::WHITE);
+        assert_eq!(c.get(1, 1), Colour::BLACK);
+        assert_eq!(c.get(2, 2), Colour::WHITE);
+        assert_eq!(c.get(4, 4), Colour::WHITE);
+        assert_eq!(c.get(5, 5), Colour::BLACK);
+        c.clear_clip();
+        c.set(0, 0, Colour::WHITE);
+        assert_eq!(c.get(0, 0), Colour::WHITE);
     }
 
     #[test]
