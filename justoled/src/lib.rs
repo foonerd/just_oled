@@ -42,6 +42,9 @@ pub mod catalog;
 pub mod canvas;
 
 #[cfg(feature = "display")]
+pub mod font;
+
+#[cfg(feature = "display")]
 pub mod oled;
 
 #[cfg(feature = "display")]

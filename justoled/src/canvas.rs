@@ -6,6 +6,7 @@
 //! as pixels are set, so pages and the driver never know about it.
 
 use crate::catalog::Format;
+use crate::font::Font;
 
 /// A colour as drawn. Monochrome formats take its luminance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -272,6 +273,42 @@ impl Canvas {
     pub fn vline(&mut self, x: i32, y: i32, len: i32, colour: Colour) {
         self.fill_rect(x, y, 1, len, colour);
     }
+
+    /// `text` in `font` with the cell's top-left at `(x, y)`; returns the
+    /// pen's x after the last glyph. Characters the font lacks draw its mark.
+    pub fn text(&mut self, font: &Font, x: i32, y: i32, text: &str, colour: Colour) -> i32 {
+        let mut pen = x;
+        for c in text.chars() {
+            let Some(g) = font.glyph_or_mark(c) else {
+                continue;
+            };
+            let gx = pen + g.left as i32;
+            let gy = y + g.top as i32;
+            for row in 0..g.height as u32 {
+                for col in 0..g.width as u32 {
+                    if font.lit(g, col, row) {
+                        self.set(gx + col as i32, gy + row as i32, colour);
+                    }
+                }
+            }
+            pen += g.advance as i32;
+        }
+        pen
+    }
+
+    /// `text` centred in the span `x..x + width`, the cell's top at `y`.
+    pub fn text_centred(
+        &mut self,
+        font: &Font,
+        x: i32,
+        y: i32,
+        width: i32,
+        text: &str,
+        colour: Colour,
+    ) {
+        let w = font.width(text);
+        self.text(font, x + (width - w) / 2, y, text, colour);
+    }
 }
 
 #[cfg(test)]
@@ -376,5 +413,32 @@ mod tests {
         c.set(-1, 0, Colour::WHITE);
         c.set(8, 0, Colour::WHITE);
         assert_eq!(c.get(-1, 0), Colour::BLACK);
+    }
+
+    #[test]
+    fn text_lands_in_its_cell_and_centres() {
+        use crate::font::MEDIUM;
+        let mut c = Canvas::new(Format::Paged1, 128, 32);
+        let end = c.text(MEDIUM, 2, 4, "Hi", Colour::WHITE);
+        assert_eq!(end, 2 + MEDIUM.width("Hi"));
+        // Ink within the cell: rows 4..24, nothing above or below.
+        let lit = |c: &Canvas, y: i32| (0..128).any(|x| c.get(x, y) == Colour::WHITE);
+        assert!((4..24).any(|y| lit(&c, y)));
+        assert!(!(0..3).any(|y| lit(&c, y)));
+        assert!(!(25..32).any(|y| lit(&c, y)));
+        // The H's stem starts at the pen plus the glyph's left bearing.
+        let h = MEDIUM.glyph('H').unwrap();
+        assert_eq!(c.get(2 + h.left as i32, 4 + h.top as i32), Colour::WHITE);
+
+        let mut c = Canvas::new(Format::Paged1, 128, 32);
+        c.text_centred(MEDIUM, 0, 0, 128, "II", Colour::WHITE);
+        let first = (0..128)
+            .find(|&x| (0..32).any(|y| c.get(x, y) == Colour::WHITE))
+            .unwrap();
+        let last = (0..128)
+            .rev()
+            .find(|&x| (0..32).any(|y| c.get(x, y) == Colour::WHITE))
+            .unwrap();
+        assert!((first - (127 - last)).abs() <= 2, "{first} {last}");
     }
 }
