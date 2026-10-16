@@ -43,6 +43,46 @@
         "type": "string",
         "value": "0"
     },
+    "face": {
+        "type": "string",
+        "value": "spectrum"
+    },
+    "time_display": {
+        "type": "string",
+        "value": "elapsed_total"
+    },
+    "show_format": {
+        "type": "boolean",
+        "value": true
+    },
+    "peaks": {
+        "type": "boolean",
+        "value": true
+    },
+    "meter_gain": {
+        "type": "number",
+        "value": 0
+    },
+    "idle_screen": {
+        "type": "string",
+        "value": "clock"
+    },
+    "idle_timeout": {
+        "type": "number",
+        "value": 30
+    },
+    "clock_format": {
+        "type": "string",
+        "value": "%H:%M"
+    },
+    "date_format": {
+        "type": "string",
+        "value": "%a %d %b"
+    },
+    "show_ip": {
+        "type": "boolean",
+        "value": true
+    },
     "show_lifecycle": {
         "type": "boolean",
         "value": true

@@ -4,6 +4,293 @@
     },
     "sections": [
         {
+            "id": "section_face",
+            "element": "section",
+            "label": "TRANSLATE.JUSTOLED.SECTION_FACE",
+            "icon": "fa-music",
+            "description": "TRANSLATE.JUSTOLED.SECTION_FACE_DOC",
+            "onSave": {
+                "type": "controller",
+                "endpoint": "system_hardware/just_oled",
+                "method": "saveFace"
+            },
+            "saveButton": {
+                "label": "TRANSLATE.JUSTOLED.SAVE",
+                "data": [
+                    "face",
+                    "time_display",
+                    "show_format",
+                    "peaks",
+                    "meter_gain"
+                ]
+            },
+            "content": [
+                {
+                    "id": "face",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.FACE",
+                    "doc": "TRANSLATE.JUSTOLED.FACE_DOC",
+                    "value": {
+                        "value": "spectrum",
+                        "label": "TRANSLATE.JUSTOLED.FACE_SPECTRUM"
+                    },
+                    "options": [
+                        {
+                            "value": "spectrum",
+                            "label": "TRANSLATE.JUSTOLED.FACE_SPECTRUM"
+                        },
+                        {
+                            "value": "spectrum_stereo",
+                            "label": "TRANSLATE.JUSTOLED.FACE_SPECTRUM_STEREO"
+                        },
+                        {
+                            "value": "spectrum_vu",
+                            "label": "TRANSLATE.JUSTOLED.FACE_SPECTRUM_VU"
+                        },
+                        {
+                            "value": "vu",
+                            "label": "TRANSLATE.JUSTOLED.FACE_VU"
+                        },
+                        {
+                            "value": "text",
+                            "label": "TRANSLATE.JUSTOLED.FACE_TEXT"
+                        },
+                        {
+                            "value": "meter",
+                            "label": "TRANSLATE.JUSTOLED.FACE_METER"
+                        }
+                    ]
+                },
+                {
+                    "id": "time_display",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.TIME_DISPLAY",
+                    "doc": "TRANSLATE.JUSTOLED.TIME_DISPLAY_DOC",
+                    "value": {
+                        "value": "elapsed_total",
+                        "label": "TRANSLATE.JUSTOLED.TIME_ELAPSED_TOTAL"
+                    },
+                    "options": [
+                        {
+                            "value": "elapsed_total",
+                            "label": "TRANSLATE.JUSTOLED.TIME_ELAPSED_TOTAL"
+                        },
+                        {
+                            "value": "elapsed",
+                            "label": "TRANSLATE.JUSTOLED.TIME_ELAPSED"
+                        },
+                        {
+                            "value": "remaining",
+                            "label": "TRANSLATE.JUSTOLED.TIME_REMAINING"
+                        },
+                        {
+                            "value": "off",
+                            "label": "TRANSLATE.JUSTOLED.TIME_OFF"
+                        }
+                    ]
+                },
+                {
+                    "id": "show_format",
+                    "element": "switch",
+                    "label": "TRANSLATE.JUSTOLED.SHOW_FORMAT",
+                    "doc": "TRANSLATE.JUSTOLED.SHOW_FORMAT_DOC",
+                    "value": true
+                },
+                {
+                    "id": "peaks",
+                    "element": "switch",
+                    "label": "TRANSLATE.JUSTOLED.PEAKS",
+                    "doc": "TRANSLATE.JUSTOLED.PEAKS_DOC",
+                    "value": true
+                },
+                {
+                    "id": "meter_gain",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.METER_GAIN",
+                    "doc": "TRANSLATE.JUSTOLED.METER_GAIN_DOC",
+                    "value": 0,
+                    "attributes": [
+                        {
+                            "min": -12
+                        },
+                        {
+                            "max": 12
+                        },
+                        {
+                            "step": 1
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "section_standby",
+            "element": "section",
+            "label": "TRANSLATE.JUSTOLED.SECTION_STANDBY",
+            "icon": "fa-clock-o",
+            "description": "TRANSLATE.JUSTOLED.SECTION_STANDBY_DOC",
+            "onSave": {
+                "type": "controller",
+                "endpoint": "system_hardware/just_oled",
+                "method": "saveStandby"
+            },
+            "saveButton": {
+                "label": "TRANSLATE.JUSTOLED.SAVE",
+                "data": [
+                    "idle_screen",
+                    "idle_timeout",
+                    "clock_format",
+                    "date_format",
+                    "show_ip"
+                ]
+            },
+            "content": [
+                {
+                    "id": "idle_screen",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.IDLE_SCREEN",
+                    "doc": "TRANSLATE.JUSTOLED.IDLE_SCREEN_DOC",
+                    "value": {
+                        "value": "clock",
+                        "label": "TRANSLATE.JUSTOLED.IDLE_CLOCK"
+                    },
+                    "options": [
+                        {
+                            "value": "clock",
+                            "label": "TRANSLATE.JUSTOLED.IDLE_CLOCK"
+                        },
+                        {
+                            "value": "blank",
+                            "label": "TRANSLATE.JUSTOLED.IDLE_BLANK"
+                        }
+                    ]
+                },
+                {
+                    "id": "idle_timeout",
+                    "element": "input",
+                    "type": "number",
+                    "label": "TRANSLATE.JUSTOLED.IDLE_TIMEOUT",
+                    "doc": "TRANSLATE.JUSTOLED.IDLE_TIMEOUT_DOC",
+                    "value": 30,
+                    "attributes": [
+                        {
+                            "min": 0
+                        },
+                        {
+                            "max": 1440
+                        },
+                        {
+                            "step": 1
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "idle_screen",
+                        "value": "clock"
+                    }
+                },
+                {
+                    "id": "clock_format",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.CLOCK_FORMAT",
+                    "doc": "TRANSLATE.JUSTOLED.CLOCK_FORMAT_DOC",
+                    "value": {
+                        "value": "%H:%M",
+                        "label": "20:45"
+                    },
+                    "options": [
+                        {
+                            "value": "%H:%M",
+                            "label": "20:45"
+                        },
+                        {
+                            "value": "%H:%M:%S",
+                            "label": "20:45:07"
+                        },
+                        {
+                            "value": "%I:%M %p",
+                            "label": "08:45 pm"
+                        },
+                        {
+                            "value": "%l:%M %p",
+                            "label": "8:45 pm"
+                        },
+                        {
+                            "value": "%I:%M:%S %p",
+                            "label": "08:45:07 pm"
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "idle_screen",
+                        "value": "clock"
+                    }
+                },
+                {
+                    "id": "date_format",
+                    "element": "select",
+                    "label": "TRANSLATE.JUSTOLED.DATE_FORMAT",
+                    "doc": "TRANSLATE.JUSTOLED.DATE_FORMAT_DOC",
+                    "value": {
+                        "value": "%a %d %b",
+                        "label": "Tue 13 Oct"
+                    },
+                    "options": [
+                        {
+                            "value": "%a %d %b",
+                            "label": "Tue 13 Oct"
+                        },
+                        {
+                            "value": "%A %d %B",
+                            "label": "Tuesday 13 October"
+                        },
+                        {
+                            "value": "%a %d %b %Y",
+                            "label": "Tue 13 Oct 2026"
+                        },
+                        {
+                            "value": "%d.%m.%Y",
+                            "label": "13.10.2026"
+                        },
+                        {
+                            "value": "%d/%m/%Y",
+                            "label": "13/10/2026"
+                        },
+                        {
+                            "value": "%m/%d/%Y",
+                            "label": "10/13/2026"
+                        },
+                        {
+                            "value": "%Y-%m-%d",
+                            "label": "2026-10-13"
+                        },
+                        {
+                            "value": "%a %d.%m.",
+                            "label": "Tue 13.10."
+                        },
+                        {
+                            "value": "%A",
+                            "label": "Tuesday"
+                        }
+                    ],
+                    "visibleIf": {
+                        "field": "idle_screen",
+                        "value": "clock"
+                    }
+                },
+                {
+                    "id": "show_ip",
+                    "element": "switch",
+                    "label": "TRANSLATE.JUSTOLED.SHOW_IP",
+                    "doc": "TRANSLATE.JUSTOLED.SHOW_IP_DOC",
+                    "value": true,
+                    "visibleIf": {
+                        "field": "idle_screen",
+                        "value": "clock"
+                    }
+                }
+            ]
+        },
+        {
             "id": "section_connection",
             "element": "section",
             "label": "TRANSLATE.JUSTOLED.SECTION_CONNECTION",

@@ -31,9 +31,9 @@ var USERCONFIG = '/boot/userconfig.txt';
 var id = 'just_oled: ';
 
 // The keys each settings section saves, and how each is read from the form.
-var SELECTS = ['connection', 'panel', 'i2c_address', 'rotate'];
-var NUMBERS = ['i2c_bus', 'i2c_sda', 'i2c_scl', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset'];
-var SWITCHES = ['show_lifecycle'];
+var SELECTS = ['connection', 'panel', 'i2c_address', 'rotate', 'face', 'time_display', 'idle_screen', 'clock_format', 'date_format'];
+var NUMBERS = ['i2c_bus', 'i2c_sda', 'i2c_scl', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset', 'meter_gain', 'idle_timeout'];
+var SWITCHES = ['show_lifecycle', 'show_format', 'peaks', 'show_ip'];
 
 module.exports = JustOled;
 
@@ -379,6 +379,14 @@ JustOled.prototype.saveConnection = function (data) {
         }
         return null;
     });
+};
+
+JustOled.prototype.saveFace = function (data) {
+    return this.saveSection(data, ['face', 'time_display', 'show_format', 'peaks', 'meter_gain']);
+};
+
+JustOled.prototype.saveStandby = function (data) {
+    return this.saveSection(data, ['idle_screen', 'idle_timeout', 'clock_format', 'date_format', 'show_ip']);
 };
 
 JustOled.prototype.saveMessages = function (data) {

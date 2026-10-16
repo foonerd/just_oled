@@ -58,3 +58,44 @@ test('a pushState is reduced to what the daemon draws, with safe types', () => {
     assert.equal(out.duration, 300);
     assert.equal('extra' in out, false);
 });
+
+test('the settings page, the store and the strings agree', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const here = path.join(__dirname, '..');
+    const ui = JSON.parse(fs.readFileSync(path.join(here, 'UIConfig.json'), 'utf8'));
+    const store = JSON.parse(fs.readFileSync(path.join(here, 'config.json'), 'utf8'));
+    const strings = JSON.parse(fs.readFileSync(path.join(here, 'i18n', 'strings_en.json'), 'utf8')).JUSTOLED;
+    // The face comes first: it is what the user sees every day.
+    assert.deepEqual(ui.sections.map((s) => s.id), ['section_face', 'section_standby', 'section_connection', 'section_messages']);
+    for (const section of ui.sections) {
+        for (const key of section.saveButton.data) {
+            assert.ok(key in store, `${key} is saved by ${section.id} but not in config.json`);
+            const element = section.content.find((e) => e.id === key);
+            assert.ok(element, `${key} has no control in ${section.id}`);
+            // The panel select is filled from the daemon's catalogue at runtime.
+            if (element.element === 'select' && key !== 'panel') {
+                const values = element.options.map((o) => String(o.value));
+                assert.ok(values.includes(String(store[key].value)), `${key}'s default ${store[key].value} is not offered`);
+                assert.ok(values.includes(String(element.value.value)), `${key}'s shown value is not offered`);
+            }
+        }
+        for (const element of section.content) {
+            for (const text of [element.label, element.doc, ...(element.options || []).map((o) => o.label)]) {
+                if (typeof text === 'string' && text.startsWith('TRANSLATE.JUSTOLED.')) {
+                    assert.ok(text.slice('TRANSLATE.JUSTOLED.'.length) in strings, `${text} has no English string`);
+                }
+            }
+        }
+    }
+    // The clock and date formats are the daemon's lists, as strftime patterns.
+    const pages = fs.readFileSync(path.join(here, '..', 'bins', 'just-oled', 'src', 'pages.rs'), 'utf8');
+    const listed = (name) => {
+        const m = pages.match(new RegExp(`pub const ${name}: &\\[&str\\] = &\\[([^\\]]*)\\]`));
+        assert.ok(m, `${name} in pages.rs`);
+        return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+    };
+    const select = (id) => ui.sections.flatMap((s) => s.content).find((e) => e.id === id).options.map((o) => o.value);
+    assert.deepEqual(select('clock_format'), listed('CLOCK_FORMATS'));
+    assert.deepEqual(select('date_format'), listed('DATE_FORMATS'));
+});
