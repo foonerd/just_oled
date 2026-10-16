@@ -4,6 +4,9 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+- Colours for the colour panels: a *Colours* choice in the Face section with Classic (white, green bars with an amber top, red peak), Amber, Ice, Fire and White, or Custom with a colour picker for each of the title, the detail rows, the bars, the bars' top, the peak marks and the progress line. The boot, ready, pause and farewell texts take the theme too. A monochrome or greyscale panel keeps its own levels.
+- Beside the time, the format text keeps to the volume and connection icons rather than floating mid-row.
+
 ## [0.1.1] - 2026-10-16
 
 - The meter takes the room the rows leave. Turning off the sample rate and bit depth, or the track time, no longer leaves an empty row: the remaining items pack into one row, or into the end of the title row when only the volume and connection icons are left, and the meter grows by what is freed. A new choice, *Track text*, sets how many rows the track takes under the meter: compact (the default: the title under one row of artist and album), full (the title larger, the artist and the album on rows of their own, as before) or the title alone. On a 128x128 panel the default meter is half as tall again as it was; with everything off it has four fifths of the panel. On a wide panel the info column beside the meter is only as wide as its rows need, so a 256x64 shows 40 bars by default and 64 with the title alone.
