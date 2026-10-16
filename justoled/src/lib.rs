@@ -12,5 +12,28 @@
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod json;
+
+#[cfg(feature = "tap")]
+pub mod fft;
+
+#[cfg(feature = "tap")]
+pub mod bank;
+
+#[cfg(feature = "tap")]
+pub mod analysis;
+#[cfg(feature = "tap")]
+pub mod dop;
+#[cfg(feature = "tap")]
+pub mod dsd;
+#[cfg(feature = "tap")]
+pub mod measure;
+#[cfg(feature = "tap")]
+pub mod relay;
+#[cfg(feature = "tap")]
+pub mod ring;
+#[cfg(feature = "tap")]
+pub mod sample;
+
 #[cfg(feature = "display")]
 pub mod catalog;
