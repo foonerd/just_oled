@@ -202,10 +202,14 @@ impl Oled {
                 format!("{} is not an {} panel", entry.id, wiring.bus().name()),
             ));
         }
-        if !driven(entry.controller) {
+        if !driven_entry(entry) {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
-                format!("{} is catalogued but not yet driven", entry.controller),
+                if driven(entry.controller) {
+                    format!("{} is catalogued but not yet driven at this size", entry.id)
+                } else {
+                    format!("{} is catalogued but not yet driven", entry.controller)
+                },
             ));
         }
         let link = Link::open(entry, wiring)?;
@@ -225,9 +229,12 @@ impl Oled {
     /// turn the display on.
     pub fn init(&mut self) -> io::Result<()> {
         self.link.reset()?;
-        match self.entry.controller {
-            Controller::Ssd1351 => ssd1351::init(&self.link, self.entry)?,
-            _ => return Err(not_driven(self.entry.controller)),
+        match family(self.entry.controller) {
+            Family::Ssd1351 => ssd1351::init(&self.link, self.entry)?,
+            Family::Ssd1306 => ssd1306::init(&self.link, self.entry)?,
+            Family::Sh1106 => sh1106::init(&self.link, self.entry)?,
+            Family::Sh1107 => sh1107::init(&self.link, self.entry)?,
+            Family::None => return Err(not_driven(self.entry.controller)),
         }
         let blank = self.canvas();
         self.show(&blank)?;
@@ -245,39 +252,81 @@ impl Oled {
                 "the frame is not this panel's size",
             ));
         }
-        match self.entry.controller {
-            Controller::Ssd1351 => ssd1351::show(&self.link, self.entry, canvas.bytes()),
-            _ => Err(not_driven(self.entry.controller)),
+        match family(self.entry.controller) {
+            Family::Ssd1351 => ssd1351::show(&self.link, self.entry, canvas.bytes()),
+            Family::Ssd1306 => ssd1306::show(&self.link, self.entry, canvas),
+            Family::Sh1106 | Family::Sh1107 => paged::show_by_page(&self.link, self.entry, canvas),
+            Family::None => Err(not_driven(self.entry.controller)),
         }
     }
 
     pub fn on(&mut self) -> io::Result<()> {
-        match self.entry.controller {
-            Controller::Ssd1351 => self.link.command(&[ssd1351::DISPLAY_ON]),
-            _ => Err(not_driven(self.entry.controller)),
+        match family(self.entry.controller) {
+            Family::None => Err(not_driven(self.entry.controller)),
+            // The same byte on every controller here.
+            _ => self.link.command(&[DISPLAY_ON]),
         }
     }
 
     /// Display off: the panel goes dark and its RAM keeps the frame.
     pub fn off(&mut self) -> io::Result<()> {
-        match self.entry.controller {
-            Controller::Ssd1351 => self.link.command(&[ssd1351::DISPLAY_OFF]),
-            _ => Err(not_driven(self.entry.controller)),
+        match family(self.entry.controller) {
+            Family::None => Err(not_driven(self.entry.controller)),
+            _ => self.link.command(&[DISPLAY_OFF]),
         }
     }
 
     /// Brightness 0..=255 as the controller counts it.
     pub fn contrast(&mut self, level: u8) -> io::Result<()> {
-        match self.entry.controller {
-            Controller::Ssd1351 => ssd1351::contrast(&self.link, level),
-            _ => Err(not_driven(self.entry.controller)),
+        match family(self.entry.controller) {
+            Family::Ssd1351 => ssd1351::contrast(&self.link, level),
+            Family::Ssd1306 | Family::Sh1106 | Family::Sh1107 => {
+                self.link.command(&[paged::CONTRAST, level])
+            }
+            Family::None => Err(not_driven(self.entry.controller)),
         }
+    }
+}
+
+/// Display on and off are 0xAF and 0xAE on every controller driven here.
+const DISPLAY_ON: u8 = 0xAF;
+const DISPLAY_OFF: u8 = 0xAE;
+
+/// The command set a controller speaks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Family {
+    /// SSD1306 and its near relatives: horizontal addressing, one burst per frame.
+    Ssd1306,
+    /// Page addressing in a 132-column RAM.
+    Sh1106,
+    /// Page addressing, pages along the long axis.
+    Sh1107,
+    Ssd1351,
+    None,
+}
+
+fn family(controller: Controller) -> Family {
+    match controller {
+        Controller::Ssd1305 | Controller::Ssd1306 | Controller::Ssd1309 | Controller::Ssd1315 => {
+            Family::Ssd1306
+        }
+        Controller::Sh1106 => Family::Sh1106,
+        Controller::Sh1107 => Family::Sh1107,
+        Controller::Ssd1351 => Family::Ssd1351,
+        _ => Family::None,
     }
 }
 
 /// Whether a sequence exists for the controller yet.
 pub fn driven(controller: Controller) -> bool {
-    matches!(controller, Controller::Ssd1351)
+    family(controller) != Family::None
+}
+
+/// Whether a sequence exists for this very entry: a controller may be
+/// driven while one of its glasses is not (the SH1107 128x64 is a 64x128
+/// turned on its side, which needs the quarter turn the canvas lacks).
+pub fn driven_entry(entry: &Entry) -> bool {
+    driven(entry.controller) && entry.id != "sh1107_128x64"
 }
 
 fn not_driven(controller: Controller) -> io::Error {
@@ -287,15 +336,230 @@ fn not_driven(controller: Controller) -> io::Error {
     )
 }
 
+/// What the one-bit controllers share: the page-addressed frame write
+/// and the geometry each glass sits at in its controller's RAM.
+/// Transcribed from the data sheets, u8g2's `u8x8_d_*.c` drivers (BSD-2,
+/// olikraus) and luma.oled where they agree, each noted where they do not.
+mod paged {
+    use super::*;
+
+    pub const CONTRAST: u8 = 0x81;
+
+    /// Where a glass sits in its controller's RAM.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Geometry {
+        /// 0xA8: rows driven, less one.
+        pub multiplex: u8,
+        /// 0xD3: the COM line the first row starts at.
+        pub row_offset: u8,
+        /// The RAM column the glass's first column is.
+        pub col_offset: u8,
+        /// 0xDA: COM pins wiring, 0x12 alternative or 0x02 sequential.
+        pub com_pins: u8,
+    }
+
+    pub fn geometry(entry: &Entry) -> Geometry {
+        let mux = (entry.height - 1) as u8;
+        match entry.id {
+            // u8g2 ssd1306_64x48, ssd1306_64x32: the middle 64 columns of the 128.
+            "ssd1306_64x48" | "ssd1306_64x32" => Geometry {
+                multiplex: mux,
+                row_offset: 0,
+                col_offset: 32,
+                com_pins: 0x12,
+            },
+            // u8g2 ssd1306_72x40: column offset 28 on the 0.42" glass.
+            "ssd1306_72x40" => Geometry {
+                multiplex: mux,
+                row_offset: 0,
+                col_offset: 28,
+                com_pins: 0x12,
+            },
+            // u8g2 ssd1305 (noname, Adafruit 2675): the glass on COM 32 up, column 4 in.
+            "ssd1305_128x32" => Geometry {
+                multiplex: 0x3F,
+                row_offset: 32,
+                col_offset: 4,
+                com_pins: 0x12,
+            },
+            // 132-column RAM, the glass two columns in (u8g2, luma, every 1.3" module page).
+            "sh1106_128x64" => Geometry {
+                multiplex: mux,
+                row_offset: 0,
+                col_offset: 2,
+                com_pins: 0x12,
+            },
+            // u8g2 and luma agree: the 64-column glass sits at display offset 0x60.
+            "sh1107_64x128" => Geometry {
+                multiplex: 0x7F,
+                row_offset: 0x60,
+                col_offset: 0,
+                com_pins: 0x12,
+            },
+            _ => Geometry {
+                multiplex: mux,
+                row_offset: 0,
+                col_offset: 0,
+                // 16- and 32-row glasses wire their COM lines sequentially.
+                com_pins: if entry.height <= 32 { 0x02 } else { 0x12 },
+            },
+        }
+    }
+
+    /// A one-bit frame a page at a time: page address, column low and
+    /// high nibbles, then the page's bytes. The way SH1106 and SH1107
+    /// take it, and a fallback for everything with a 0xB0 page command.
+    pub fn show_by_page(link: &Link, entry: &Entry, canvas: &Canvas) -> io::Result<()> {
+        debug_assert_eq!(entry.format(), Format::Paged1);
+        let col = geometry(entry).col_offset;
+        for page in 0..canvas.pages() {
+            link.command(&[0xB0 | page as u8, col & 0x0F, 0x10 | (col >> 4)])?;
+            link.data(canvas.page(page))?;
+        }
+        Ok(())
+    }
+}
+
+/// SSD1306, and SSD1305, SSD1309 and SSD1315 with it: Solomon Systech's
+/// sheets, u8g2's `u8x8_d_ssd1306_*.c`, `u8x8_d_ssd1305.c`,
+/// `u8x8_d_ssd1309.c` and luma.oled's `ssd1306`. Command arguments are
+/// commands themselves. The frame goes as one burst in horizontal
+/// addressing mode over the glass's column and page window.
+mod ssd1306 {
+    use super::paged::geometry;
+    use super::*;
+
+    pub fn init(link: &Link, entry: &Entry) -> io::Result<()> {
+        let g = geometry(entry);
+        let (clock, precharge, vcomh, contrast) = match entry.controller {
+            // u8g2 ssd1309: no charge pump; its own electrical values.
+            Controller::Ssd1309 => (0xA0, 0xD3, 0x20, 0x6F),
+            _ => match entry.id {
+                // The small glasses' sheets (u8g2 64x48, 64x32, 72x40).
+                "ssd1306_64x48" | "ssd1306_64x32" => (0x80, 0x22, 0x00, 0xCF),
+                "ssd1306_72x40" => (0x80, 0x22, 0x20, 0xCF),
+                "ssd1306_96x16" => (0x80, 0xF1, 0x20, 0xCF),
+                "ssd1306_128x32" => (0x80, 0xF1, 0x40, 0x8F),
+                _ => (0x80, 0xF1, 0x40, 0xCF),
+            },
+        };
+        let mut seq: Vec<u8> = vec![
+            DISPLAY_OFF,
+            0xD5,
+            clock,
+            0xA8,
+            g.multiplex,
+            0xD3,
+            g.row_offset,
+            0x40,
+        ];
+        match entry.controller {
+            // SSD1309 has no charge pump; SSD1305 runs from an external VCC.
+            Controller::Ssd1309 => {}
+            Controller::Ssd1305 => seq.extend_from_slice(&[0x8D, 0x10]),
+            _ => seq.extend_from_slice(&[0x8D, 0x14]),
+        }
+        seq.extend_from_slice(&[
+            0x20, 0x00, // horizontal addressing
+            0xA1, // segment remap: column 127 to SEG0
+            0xC8, // COM scan from COM[N-1] to COM0
+            0xDA, g.com_pins, 0x81, contrast, 0xD9, precharge, 0xDB, vcomh,
+            0x2E, // scrolling off
+            0xA4, // show the RAM
+            0xA6, // normal, not inverted
+        ]);
+        link.command(&seq)
+    }
+
+    pub fn show(link: &Link, entry: &Entry, canvas: &Canvas) -> io::Result<()> {
+        debug_assert_eq!(entry.format(), Format::Paged1);
+        let g = geometry(entry);
+        let first = g.col_offset;
+        let last = first + (entry.width - 1) as u8;
+        let pages = canvas.pages() as u8;
+        link.command(&[0x21, first, last, 0x22, 0x00, pages - 1])?;
+        link.data(canvas.bytes())
+    }
+}
+
+/// SH1106: Sino Wealth's sheet, u8g2's `u8x8_d_sh1106_*.c` and luma.oled's
+/// `sh1106`. Page addressing only; the built-in DC-DC switched on.
+mod sh1106 {
+    use super::paged::geometry;
+    use super::*;
+
+    pub fn init(link: &Link, entry: &Entry) -> io::Result<()> {
+        let g = geometry(entry);
+        link.command(&[
+            DISPLAY_OFF,
+            0xD5,
+            0x80, // clock divide and oscillator
+            0xA8,
+            g.multiplex,
+            0xD3,
+            g.row_offset,
+            0x40, // start line 0
+            0xAD,
+            0x8B, // built-in DC-DC on
+            0x33, // charge pump voltage 9 V (u8g2; the sheet's reset is 0x32)
+            0xA1, // segment remap
+            0xC8, // COM scan reversed
+            0xDA,
+            g.com_pins,
+            0x81,
+            0x80, // contrast
+            0xD9,
+            0x22, // precharge
+            0xDB,
+            0x35, // VCOMH
+            0xA4,
+            0xA6,
+        ])
+    }
+}
+
+/// SH1107: Sino Wealth's sheet, u8g2's `u8x8_d_sh1107.c` and luma.oled's
+/// `sh1107`. Pages run along the long axis, so a 64x128 glass is sixteen
+/// pages of 64 bytes, as the canvas holds it.
+mod sh1107 {
+    use super::paged::geometry;
+    use super::*;
+
+    pub fn init(link: &Link, entry: &Entry) -> io::Result<()> {
+        let g = geometry(entry);
+        link.command(&[
+            DISPLAY_OFF,
+            0xDC,
+            0x00, // start line
+            0x81,
+            0x2F, // contrast (u8g2; luma 0x7F)
+            0x20, // page addressing
+            0xA0, // segment remap off
+            0xC0, // COM scan normal
+            0xA8,
+            g.multiplex,
+            0xD3,
+            g.row_offset,
+            0xD5,
+            0x51, // clock divide and oscillator
+            0xD9,
+            0x22, // precharge
+            0xDB,
+            0x35, // VCOMH
+            0xDA,
+            g.com_pins,
+            0xA4,
+            0xA6,
+        ])
+    }
+}
+
 /// SSD1351: 128 x 128 RGB, 65K colour, in Solomon Systech's data sheet
 /// rev 1.5. Command arguments go as data. Values follow the sheet's
 /// reset defaults where the reference drivers (Waveshare's demo for the
 /// 1.5inch RGB OLED Module, luma.oled) agree, theirs where they differ.
 mod ssd1351 {
     use super::*;
-
-    pub const DISPLAY_ON: u8 = 0xAF;
-    pub const DISPLAY_OFF: u8 = 0xAE;
 
     /// Remap and colour depth (0xA0): 65K colour, COM split odd/even,
     /// scan COM[N-1] to COM0, colour order C-B-A, horizontal increment.
@@ -370,7 +634,7 @@ mod tests {
 
     #[test]
     fn an_undriven_controller_says_so_before_touching_the_bus() {
-        let entry = catalog::find("ssd1306_128x64").expect("catalogued");
+        let entry = catalog::find("ssd1327_128x128").expect("catalogued");
         assert!(!driven(entry.controller));
         let err = Oled::open(
             entry,
@@ -382,6 +646,56 @@ mod tests {
         )
         .expect_err("not driven");
         assert_eq!(err.kind(), io::ErrorKind::Unsupported);
+        // A driven controller on a glass the canvas cannot yet turn for.
+        let sideways = catalog::find("sh1107_128x64").expect("catalogued");
+        assert!(driven(sideways.controller) && !driven_entry(sideways));
+        let err = Oled::open(
+            sideways,
+            &Wiring::I2c {
+                bus: 200,
+                addr: 0x3C,
+                reset: None,
+            },
+        )
+        .expect_err("not at this size");
+        assert!(err.to_string().contains("at this size"), "{err}");
+    }
+
+    #[test]
+    fn the_one_bit_family_is_driven_with_its_glass_geometry() {
+        use paged::geometry;
+        for id in [
+            "ssd1306_128x64",
+            "ssd1306_128x32",
+            "ssd1315_128x64",
+            "ssd1309_128x64",
+            "ssd1305_128x32",
+            "sh1106_128x64",
+            "sh1107_64x128",
+            "sh1107_128x128",
+        ] {
+            let e = catalog::find(id).expect(id);
+            assert!(driven_entry(e), "{id}");
+            assert_eq!(e.format(), Format::Paged1, "{id}");
+        }
+        let g = geometry(catalog::find("ssd1306_128x64").unwrap());
+        assert_eq!(
+            (g.multiplex, g.row_offset, g.col_offset, g.com_pins),
+            (0x3F, 0, 0, 0x12)
+        );
+        let g = geometry(catalog::find("ssd1306_128x32").unwrap());
+        assert_eq!((g.multiplex, g.com_pins), (0x1F, 0x02));
+        let g = geometry(catalog::find("ssd1306_64x48").unwrap());
+        assert_eq!((g.multiplex, g.col_offset), (0x2F, 32));
+        let g = geometry(catalog::find("sh1106_128x64").unwrap());
+        assert_eq!(g.col_offset, 2);
+        let g = geometry(catalog::find("sh1107_64x128").unwrap());
+        assert_eq!((g.multiplex, g.row_offset), (0x7F, 0x60));
+        let g = geometry(catalog::find("ssd1305_128x32").unwrap());
+        assert_eq!((g.multiplex, g.row_offset, g.col_offset), (0x3F, 32, 4));
+        // The page write addresses sixteen pages of 64 bytes on the tall glass.
+        let c = Canvas::new(Format::Paged1, 64, 128);
+        assert_eq!((c.pages(), c.page(15).len()), (16, 64));
     }
 
     #[test]
