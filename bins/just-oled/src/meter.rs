@@ -46,7 +46,9 @@ pub fn height(amplitude: f32) -> f32 {
     if amplitude <= 0.0 {
         return 0.0;
     }
-    let db = 20.0 * amplitude.log10();
+    // Through ln, not log10: glibc 2.43 gives log10f a new symbol version,
+    // and a binary built on such a host would not load on Volumio's 2.36.
+    let db = 20.0 * std::f32::consts::LOG10_E * amplitude.ln();
     ((db - FLOOR_DB) / -FLOOR_DB).clamp(0.0, 1.0)
 }
 
