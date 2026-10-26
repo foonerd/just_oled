@@ -485,16 +485,13 @@ impl Daemon {
             Phase::Message { lines, .. } => pages::lines(&mut panel.canvas, lines, theme),
             Phase::Test { .. } => pattern::draw(&mut panel.canvas),
             Phase::Farewell => {}
-            Phase::Player => match status {
-                Status::Play => pages::playing(&mut panel.canvas, &view),
-                Status::Pause if s.show_lifecycle => {
-                    pages::lines(&mut panel.canvas, &s.text_pause, theme)
-                }
-                Status::Pause => pages::playing(&mut panel.canvas, &view),
-                Status::Stop => {
-                    display_on = standby(&mut panel.canvas, since);
-                }
-            },
+            Phase::Player if at_rest(status, since, s.pause_standby) => {
+                display_on = standby(&mut panel.canvas, since);
+            }
+            Phase::Player if status == Status::Pause && s.show_lifecycle => {
+                pages::lines(&mut panel.canvas, &s.text_pause, theme)
+            }
+            Phase::Player => pages::playing(&mut panel.canvas, &view),
         }
         let result = panel.flush().and_then(|_| panel.display(display_on));
         if let Err(e) = result {
@@ -583,6 +580,17 @@ impl Daemon {
     }
 }
 
+/// Whether the player is at rest, so the standby page shows: stopped, or
+/// paused for as long as makes a pause a stop. Volumio's play button
+/// pauses rather than stops, so a pause is the usual resting state.
+fn at_rest(status: Status, since: Duration, pause_standby: Option<Duration>) -> bool {
+    match status {
+        Status::Stop => true,
+        Status::Pause => pause_standby.is_some_and(|t| since >= t),
+        Status::Play => false,
+    }
+}
+
 /// Where the tap's rings are.
 pub fn ring_dir() -> PathBuf {
     Path::new(ring::DIR).to_path_buf()
@@ -612,9 +620,21 @@ mod tests {
             text_reboot: vec!["Back soon".into()],
             idle_clock: true,
             idle_timeout: Some(Duration::from_secs(1800)),
+            pause_standby: Some(Duration::ZERO),
             clock_format: "%H:%M".into(),
             date_format: "%a %d %b".into(),
         }
+    }
+
+    #[test]
+    fn a_pause_is_a_stop_after_the_set_time_or_never() {
+        let s = Duration::from_secs;
+        assert!(at_rest(Status::Stop, s(0), None));
+        assert!(!at_rest(Status::Play, s(3600), Some(s(0))));
+        assert!(at_rest(Status::Pause, s(0), Some(s(0))), "at once");
+        assert!(!at_rest(Status::Pause, s(29), Some(s(30))));
+        assert!(at_rest(Status::Pause, s(30), Some(s(30))));
+        assert!(!at_rest(Status::Pause, s(86400), None), "switched off");
     }
 
     #[test]

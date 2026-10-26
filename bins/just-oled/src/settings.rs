@@ -36,6 +36,8 @@ pub struct Settings {
     pub idle_clock: bool,
     /// Standby time before the panel goes dark; `None` keeps the clock on.
     pub idle_timeout: Option<std::time::Duration>,
+    /// How long a pause lasts before it counts as a stop; `None` never.
+    pub pause_standby: Option<std::time::Duration>,
     /// `strftime` patterns, one of `CLOCK_FORMATS` and `DATE_FORMATS`.
     pub clock_format: String,
     pub date_format: String,
@@ -176,6 +178,16 @@ impl Settings {
                     (m.min(1440.0) * 60.0) as u64,
                 )),
             },
+            pause_standby: if store.boolean("pause_standby").unwrap_or(true) {
+                Some(std::time::Duration::from_secs(
+                    store
+                        .number("pause_timeout")
+                        .unwrap_or(0.0)
+                        .clamp(0.0, 3600.0) as u64,
+                ))
+            } else {
+                None
+            },
             clock_format: one_of("clock_format", CLOCK_FORMATS),
             date_format: one_of("date_format", DATE_FORMATS),
         })
@@ -249,6 +261,11 @@ mod tests {
         assert!(s.idle_clock);
         assert_eq!(s.idle_timeout, Some(std::time::Duration::from_secs(1800)));
         assert_eq!(
+            s.pause_standby,
+            Some(std::time::Duration::ZERO),
+            "a pause is a stop at once"
+        );
+        assert_eq!(
             (s.clock_format.as_str(), s.date_format.as_str()),
             ("%H:%M", "%a %d %b")
         );
@@ -264,6 +281,7 @@ mod tests {
             ("meter_gain", "-6"),
             ("idle_screen", "\"blank\""),
             ("idle_timeout", "0"),
+            ("pause_timeout", "45"),
             ("clock_format", "\"%I:%M %p\""),
             ("date_format", "\"%Y-%m-%d\""),
             ("show_ip", "false"),
@@ -292,6 +310,7 @@ mod tests {
         );
         assert!(!s.idle_clock);
         assert_eq!(s.idle_timeout, None);
+        assert_eq!(s.pause_standby, Some(std::time::Duration::from_secs(45)));
         assert_eq!(
             (s.clock_format.as_str(), s.date_format.as_str()),
             ("%I:%M %p", "%Y-%m-%d")
@@ -314,9 +333,12 @@ mod tests {
             ("panel", "\"ssd1351_128x128\""),
             ("gpio_dc", "25"),
             ("theme", "\"amber\""),
+            ("pause_standby", "false"),
+            ("pause_timeout", "99999"),
         ]);
         let s = Settings::parse(&text).expect("parses");
         assert_eq!(s.look.theme, Theme::preset("amber"));
+        assert_eq!(s.pause_standby, None, "switched off: the pause text stays");
     }
 
     #[test]
