@@ -4,6 +4,12 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-26
+
+- A pause becomes standby. Volumio's play button pauses rather than stops, so a paused player is the usual resting state, and the pause text stayed on the panel until the player was stopped outright. Two settings at the head of the Standby section: *Pause goes to standby* (on) and *Standby after a pause (seconds)* (0, at once; up to an hour). The standby page then shows, and the display goes dark on the same schedule as after a stop. Off keeps the pause text until the player stops or plays.
+- The level mapping goes through `ln` rather than `log10`, so a daemon built on a glibc 2.43 host no longer binds `log10f`'s new symbol version and the glibc gate passes everywhere.
+- The plugin requires Volumio 4 (`engines.volumio`).
+
 ## [0.1.3] - 2026-10-16
 
 - *I2C bus speed* in the Connection section: 100 kHz (the Pi's default), 400 kHz (what the controllers are specified for) or 1 MHz (beyond it; many modules take it). At 100 kHz a 128x64 frame takes about 90 ms and the meter moves at 10 frames a second; at 400 kHz it moves at the daemon's 25. Written to `/boot/userconfig.txt` between the plugin's marks for the hardware buses (`i2c_arm_baudrate`, `i2c_vc_baudrate`); a restart is asked for. `--probe` prints each bus's clock.
