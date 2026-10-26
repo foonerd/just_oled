@@ -4,6 +4,10 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-26
+
+- The plugin's author is Just a Nerd in the store listing, as in the other plugins; the GitHub login stood there before.
+
 ## [0.1.5] - 2026-10-26
 
 - The settings page in German, French, Italian, Dutch, Spanish, Polish, Japanese and Chinese, following the player's language; any other language shows English. A language file is all or nothing, since Volumio takes the plugin's toasts and modals from the one file of the player's language without falling back to the English one; the check refuses a file that lacks a key, a placeholder or the `|` separator.
