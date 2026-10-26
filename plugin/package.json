@@ -3,7 +3,7 @@
     "version": "0.1.5",
     "description": "Spectrum, VU, now playing and a clock on any I2C or SPI OLED, with the player's boot and shutdown",
     "main": "index.js",
-    "author": "foonerd",
+    "author": "Just a Nerd",
     "license": "MIT",
     "repository": "https://github.com/foonerd/just_oled",
     "volumio_info": {
