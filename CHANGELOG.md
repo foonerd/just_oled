@@ -4,6 +4,10 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-28
+
+- After a plugin update the display comes back on its own. Volumio stops a plugin before replacing its files and does not start the new code until the player restarts; the installer now starts the display service itself when the plugin was on, so the panel is dark only for the seconds the update takes. A fresh install is unchanged: the service starts when the plugin is enabled.
+- The settings page saves what it declares. Each section's keys are read from `UIConfig.json` when Save is pressed rather than from a list in the code, and a value whose kind the code does not know is stored by its shape; the previous version's code, which Volumio keeps in memory until the restart, then keeps a control the update added instead of dropping it.
 ## [0.1.7] - 2026-10-28
 
 - The SPI TFT LCDs join the catalogue: ST7789 at 240x320 (the Waveshare 2", Adafruit's 2.0", Pimoroni's Display HAT Mini), 240x240 (the 1.3" squares, Pirate Audio), 135x240 (1.14") and 170x320 (1.9"); ST7735 at 128x160 and 80x160; ILI9341 at 240x320. RGB565 like the SSD1351, at 40 MHz (15 MHz for the ST7735); a 240x320 frame goes in 36 ms. Each glass sits where its data sheet puts it in the controller's RAM, with the colour order and inversion the module needs. The daemon sends the rows that changed between two frames rather than the whole frame, so the meter moves at its 25 fps on the large glasses too.
