@@ -24,6 +24,7 @@ const CLASSES: &[(&str, Format, u16, u16)] = &[
     ("256x64-grey", Format::Grey4, 256, 64),
     ("128x128-rgb", Format::Rgb565, 128, 128),
     ("96x64-rgb", Format::Rgb565, 96, 64),
+    ("320x240-rgb", Format::Rgb565, 320, 240),
 ];
 
 /// The faces at the default look, then the spectrum face as the other

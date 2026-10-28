@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use justoled::canvas::{Canvas, Colour};
 use justoled::catalog::Format;
-use justoled::font::{Font, LARGE, MEDIUM, SMALL};
+use justoled::font::{Font, CLOCK, HUGE, LARGE, MEDIUM, SMALL};
 
 use crate::control::Track;
 use crate::meter::Bars;
@@ -134,7 +134,52 @@ pub fn font_for(height: u16) -> &'static Font {
     match height {
         0..=39 => SMALL,
         40..=95 => MEDIUM,
-        _ => LARGE,
+        96..=199 => LARGE,
+        _ => HUGE,
+    }
+}
+
+/// The three faces a panel's pages are set in. The OLED classes use
+/// 12, 16 and 24 px; a panel of 200 rows and more, which is a TFT with
+/// finer pixels, steps every role up one face, so the type keeps the
+/// size it has on the small panels and the rows take the room.
+#[derive(Clone, Copy, Debug)]
+pub struct Fonts {
+    pub small: &'static Font,
+    pub medium: &'static Font,
+    pub large: &'static Font,
+    /// The icons' and the level bars' pixel scale: doubled with the type.
+    pub scale: i32,
+}
+
+impl Fonts {
+    pub fn for_panel(w: i32, h: i32) -> Fonts {
+        if h >= 200 && w >= 160 {
+            Fonts {
+                small: MEDIUM,
+                medium: LARGE,
+                large: HUGE,
+                scale: 2,
+            }
+        } else {
+            Fonts::default()
+        }
+    }
+
+    /// The volume wedge, the connection and their gaps, across.
+    fn icons_w(&self) -> i32 {
+        ICONS_W * self.scale
+    }
+}
+
+impl Default for Fonts {
+    fn default() -> Self {
+        Fonts {
+            small: SMALL,
+            medium: MEDIUM,
+            large: LARGE,
+            scale: 1,
+        }
     }
 }
 
@@ -146,7 +191,7 @@ fn font_that_fits<'a>(
     rows: impl Iterator<Item = &'a str> + Clone,
 ) -> &'static Font {
     let start = font_for(height);
-    let ladder: &[&Font] = &[LARGE, MEDIUM, SMALL];
+    let ladder: &[&Font] = &[HUGE, LARGE, MEDIUM, SMALL];
     // By name, not address: a `const` reference is not one address.
     let from = ladder
         .iter()
@@ -178,6 +223,8 @@ pub struct Rect {
 /// size decides where.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Layout {
+    /// The faces the page is set in.
+    pub fonts: Fonts,
     /// The meter's box; `None` on a text face.
     pub meter: Option<Rect>,
     /// The format, volume and connection row.
@@ -192,8 +239,7 @@ pub struct Layout {
     pub progress: Option<Rect>,
 }
 
-const STATUS_H: i32 = 15;
-/// The volume wedge, the connection and their gaps.
+/// The volume wedge, the connection and their gaps, at icon scale 1.
 const ICONS_W: i32 = 30;
 /// A meter lower than this is not worth stacking the text under; the
 /// info rows go beside it instead.
@@ -293,8 +339,14 @@ fn row(x: i32, y: i32, w: i32, font: &'static Font) -> (Rect, &'static Font) {
 /// 40 rows) puts the title over the meter. The text face stacks the rows
 /// in larger type. Every face ends in a progress line.
 pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
-    let small = SMALL.line_height as i32;
-    let progress_h = if h < 96 { 1 } else { 2 };
+    let f = Fonts::for_panel(w, h);
+    let small = f.small.line_height as i32;
+    let status_h = small;
+    let progress_h = match h {
+        0..=95 => 1,
+        96..=199 => 2,
+        _ => 3,
+    };
     let progress = Some(Rect {
         x: 0,
         y: h - progress_h,
@@ -305,6 +357,7 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
 
     if face == Face::MeterOnly {
         return Layout {
+            fonts: f,
             meter: Some(Rect {
                 x: 0,
                 y: 0,
@@ -319,43 +372,44 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
     if !face.has_meter() {
         // Text: title first and largest, then what fits beneath.
         let mut lay = Layout {
+            fonts: f,
             progress,
             ..Layout::default()
         };
         let mut y = 0;
         if h < 40 {
-            lay.title = Some(row(0, y, w, SMALL));
+            lay.title = Some(row(0, y, w, f.small));
             y += small;
             if y + small <= body_h {
-                lay.artist = Some(row(0, y, w, SMALL));
+                lay.artist = Some(row(0, y, w, f.small));
             }
             return lay;
         }
-        let title_font = if h >= 96 { LARGE } else { MEDIUM };
+        let title_font = if h >= 96 { f.large } else { f.medium };
         lay.title = Some(row(0, y, w, title_font));
         y += title_font.line_height as i32;
-        let detail_font = if h >= 96 { MEDIUM } else { SMALL };
+        let detail_font = if h >= 96 { f.medium } else { f.small };
         lay.artist = Some(row(0, y, w, detail_font));
         y += detail_font.line_height as i32;
-        if y + small + STATUS_H <= body_h {
-            lay.album = Some(row(0, y, w, SMALL));
+        if y + small + status_h <= body_h {
+            lay.album = Some(row(0, y, w, f.small));
             y += small;
         }
         // The last row: the time on the left, the format and icons on the right.
-        let status_y = body_h - STATUS_H;
+        let status_y = body_h - status_h;
         if status_y >= y {
             let time_w = if w >= 200 { w / 3 } else { w / 2 };
             lay.time = Some(Rect {
                 x: 0,
                 y: status_y,
                 w: time_w,
-                h: STATUS_H,
+                h: status_h,
             });
             lay.status = Some(Rect {
                 x: time_w,
                 y: status_y,
                 w: w - time_w,
-                h: STATUS_H,
+                h: status_h,
             });
         }
         return lay;
@@ -363,13 +417,14 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
 
     if h < 40 {
         return Layout {
+            fonts: f,
             meter: Some(Rect {
                 x: 0,
                 y: small,
                 w,
                 h: body_h - small,
             }),
-            title: Some(row(0, 0, w, SMALL)),
+            title: Some(row(0, 0, w, f.small)),
             progress,
             ..Layout::default()
         };
@@ -378,7 +433,7 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
     // The text rows: the title at the foot, as mpd_oled, what else the
     // choice asks for above it.
     let full = look.text == TrackText::Full;
-    let mut title_font = if full && h >= 120 { MEDIUM } else { SMALL };
+    let mut title_font = if full && h >= 120 { f.medium } else { f.small };
     let mut with_album = full && h >= 120;
     let mut with_artist = full;
     let mut with_line = look.text == TrackText::Compact;
@@ -390,14 +445,21 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
     let time_on = look.time != TimeDisplay::Off;
     let time_w = match look.time {
         TimeDisplay::Off => 0,
-        TimeDisplay::ElapsedTotal => SMALL.width("00:00 / 00:00") + 3,
-        _ => SMALL.width("-00:00") + 3,
+        TimeDisplay::ElapsedTotal => f.small.width("00:00 / 00:00") + 3,
+        _ => f.small.width("-00:00") + 3,
     };
-    let format_width = |on: bool| if on { SMALL.width("44.1k 16b") + 3 } else { 0 };
+    let format_width = |on: bool| {
+        if on {
+            f.small.width("44.1k 16b") + 3
+        } else {
+            0
+        }
+    };
+    let icons_w = f.icons_w();
     let rows_for = |format_on: bool| -> i32 {
         if !format_on && !time_on {
             0
-        } else if format_width(format_on) + time_w + ICONS_W <= w {
+        } else if format_width(format_on) + time_w + icons_w <= w {
             1
         } else {
             1 + time_on as i32
@@ -436,8 +498,8 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
                 with_line = false;
             } else if format_on && rows_for(format_on) > 1 {
                 format_on = false;
-            } else if title_font.line_height != SMALL.line_height {
-                title_font = SMALL;
+            } else if title_font.line_height != f.small.line_height {
+                title_font = f.small;
             } else if gap > 0 {
                 gap = 0;
             } else {
@@ -457,6 +519,7 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
     );
 
     let mut lay = Layout {
+        fonts: f,
         progress,
         ..Layout::default()
     };
@@ -474,7 +537,7 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
             0 => {}
             1 => {
                 // The time on the left with the room the format and icons leave.
-                let tw = if time_on { w - format_w - ICONS_W } else { 0 };
+                let tw = if time_on { w - format_w - icons_w } else { 0 };
                 if time_on {
                     lay.time = Some(Rect {
                         x: 0,
@@ -512,7 +575,7 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
     } else {
         // Two columns: the meter left, the info rows right, the text
         // beneath. The column is as wide as its rows need, up to half.
-        let col_w = (format_w + ICONS_W).max(time_w).max(ICONS_W) + 4;
+        let col_w = (format_w + icons_w).max(time_w).max(icons_w) + 4;
         let col_w = col_w.min(w / 2 - 2);
         let col_x = w - col_w;
         let top_h = body_h - text_h;
@@ -526,14 +589,14 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
             x: col_x,
             y: 0,
             w: col_w,
-            h: STATUS_H,
+            h: status_h,
         });
         if time_on {
             lay.time = Some(Rect {
                 x: col_x,
-                y: STATUS_H + 1,
+                y: status_h + 1,
                 w: col_w,
-                h: (top_h - STATUS_H - 1).max(small),
+                h: (top_h - status_h - 1).max(small),
             });
         }
         top_h
@@ -541,27 +604,27 @@ pub fn layout(w: i32, h: i32, face: Face, look: &Look) -> Layout {
 
     let mut y = text_top;
     if with_album {
-        lay.album = Some(row(0, y, w, SMALL));
+        lay.album = Some(row(0, y, w, f.small));
         y += small;
     }
     if with_artist {
-        lay.artist = Some(row(0, y, w, SMALL));
+        lay.artist = Some(row(0, y, w, f.small));
         y += small;
     }
     if with_line {
-        lay.line = Some(row(0, y, w, SMALL));
+        lay.line = Some(row(0, y, w, f.small));
         y += small;
     }
     let mut title = row(0, y, w, title_font);
     if lay.status.is_none() {
         // Only the icons: the end of the title row is theirs.
         lay.status = Some(Rect {
-            x: w - ICONS_W,
+            x: w - icons_w,
             y: title.0.y,
-            w: ICONS_W,
+            w: icons_w,
             h: title.0.h,
         });
-        title.0.w = w - ICONS_W - 2;
+        title.0.w = w - icons_w - 2;
     }
     lay.title = Some(title);
     lay
@@ -804,22 +867,23 @@ pub fn playing(canvas: &mut Canvas, view: &View) {
                 pal.detail,
             );
         } else {
-            draw_meter(canvas, meter, view, &pal);
+            draw_meter(canvas, meter, lay.fonts, view, &pal);
         }
     }
 
     if let Some(status) = lay.status {
         let beside_time = lay.time.is_some_and(|t| t.y == status.y);
-        draw_status(canvas, status, view, &pal, beside_time);
+        draw_status(canvas, status, lay.fonts, view, &pal, beside_time);
     }
     if let Some(rect) = lay.time {
+        let font = lay.fonts.small;
         let text = time_text(view.look, view.elapsed_s, view.track.duration);
-        let fitted = SMALL.fit(&text, rect.w - 2);
+        let fitted = font.fit(&text, rect.w - 2);
         // Centred where the row is its own; left-aligned beside the status.
         if lay.status.is_some_and(|s| s.y == rect.y) {
-            canvas.text(SMALL, rect.x + 1, rect.y, &fitted, pal.detail);
+            canvas.text(font, rect.x + 1, rect.y, &fitted, pal.detail);
         } else {
-            canvas.text_centred(SMALL, rect.x, rect.y, rect.w, &fitted, pal.detail);
+            canvas.text_centred(font, rect.x, rect.y, rect.w, &fitted, pal.detail);
         }
     }
     if let Some((rect, font)) = lay.album {
@@ -850,14 +914,14 @@ pub fn playing(canvas: &mut Canvas, view: &View) {
 
 /// The meter the face asks for, in its box. One-bit audio has no bank,
 /// so a spectrum falls back on the level.
-fn draw_meter(canvas: &mut Canvas, r: Rect, view: &View, pal: &Palette) {
+fn draw_meter(canvas: &mut Canvas, r: Rect, fonts: Fonts, view: &View, pal: &Palette) {
     let bars = view.bars;
     let one_bit = bars.levels().iter().all(|&l| l == 0.0) && bars.peak_level() > 0.0;
     let peaks = view.look.peaks;
     match view.look.face {
         Face::Text => {}
-        Face::Vu => draw_vu(canvas, r, bars, peaks, pal),
-        _ if one_bit => draw_level(canvas, r, bars, pal),
+        Face::Vu => draw_vu(canvas, r, fonts, bars, peaks, pal),
+        _ if one_bit => draw_level(canvas, r, fonts.scale, bars, pal),
         Face::Spectrum | Face::MeterOnly => draw_bars(canvas, r, bars, peaks, pal),
         Face::SpectrumStereo => draw_bars_stereo(canvas, r, bars, peaks, pal),
         Face::SpectrumVu => {
@@ -881,6 +945,7 @@ fn draw_meter(canvas: &mut Canvas, r: Rect, view: &View, pal: &Palette) {
                         w: vu_w,
                         ..r
                     },
+                    fonts,
                     bars,
                     peaks,
                     pal,
@@ -904,6 +969,7 @@ fn draw_meter(canvas: &mut Canvas, r: Rect, view: &View, pal: &Palette) {
                         h: vu_h,
                         ..r
                     },
+                    fonts,
                     bars,
                     peaks,
                     pal,
@@ -960,43 +1026,53 @@ fn draw_bars_stereo(canvas: &mut Canvas, r: Rect, bars: &Bars, peaks: bool, pal:
 
 /// The stream's format on the left, the volume and the connection on the
 /// right; beside the time, the format keeps to the icons instead.
-fn draw_status(canvas: &mut Canvas, rect: Rect, view: &View, pal: &Palette, beside_time: bool) {
-    let icon_w = 12;
-    let icon_y = rect.y + (rect.h - 8) / 2;
+fn draw_status(
+    canvas: &mut Canvas,
+    rect: Rect,
+    fonts: Fonts,
+    view: &View,
+    pal: &Palette,
+    beside_time: bool,
+) {
+    let font = fonts.small;
+    let s = fonts.scale;
+    let icon_w = 12 * s;
+    let icon_y = rect.y + (rect.h - 8 * s) / 2;
     let mut right = rect.x + rect.w;
     if view.net.connection != Connection::None {
         right -= icon_w;
-        draw_connection(canvas, right, icon_y, view.net.connection, pal.detail);
-        right -= 3;
+        draw_connection(canvas, right, icon_y, s, view.net.connection, pal.detail);
+        right -= 3 * s;
     }
     right -= icon_w;
     draw_volume(
         canvas,
         right,
         icon_y,
+        s,
         view.track.volume,
         view.track.mute,
         pal.detail,
     );
-    let room = right - 3 - rect.x;
+    let room = right - 3 * s - rect.x;
     let text = if view.look.show_format {
-        format_text(view.track, room)
+        format_text(view.track, font, room)
     } else {
         String::new()
     };
     let x = if beside_time {
-        right - 5 - SMALL.width(&text)
+        right - 5 - font.width(&text)
     } else {
         rect.x
     };
     canvas.set_clip(rect.x, rect.y, room, rect.h);
-    canvas.text(SMALL, x.max(rect.x), rect.y, &text, pal.detail);
+    canvas.text(font, x.max(rect.x), rect.y, &text, pal.detail);
     canvas.clear_clip();
 }
 
 /// "44.1k 16b" when it fits, "44.1k" when it does not; the bit rate for a
 /// stream that reports no sample rate.
-fn format_text(track: &Track, room: i32) -> String {
+fn format_text(track: &Track, font: &Font, room: i32) -> String {
     let first = |s: &str, suffix: &str| {
         s.split_whitespace()
             .next()
@@ -1011,9 +1087,9 @@ fn format_text(track: &Track, room: i32) -> String {
         (false, true) => khz.clone(),
         (true, _) => kbps,
     };
-    if SMALL.width(&full) <= room {
+    if font.width(&full) <= room {
         full
-    } else if SMALL.width(&khz) <= room {
+    } else if font.width(&khz) <= room {
         khz
     } else {
         // Too narrow for even the rate: the icons alone.
@@ -1021,10 +1097,19 @@ fn format_text(track: &Track, room: i32) -> String {
     }
 }
 
-/// mpd_oled's volume mark: a wedge, filled to the volume; outline alone when muted.
-fn draw_volume(canvas: &mut Canvas, x: i32, y: i32, volume: i64, mute: bool, colour: Colour) {
-    let w = 12;
-    let h = 8;
+/// mpd_oled's volume mark: a wedge, filled to the volume; outline alone
+/// when muted. 12 by 8 pixels at scale 1.
+fn draw_volume(
+    canvas: &mut Canvas,
+    x: i32,
+    y: i32,
+    s: i32,
+    volume: i64,
+    mute: bool,
+    colour: Colour,
+) {
+    let w = 12 * s;
+    let h = 8 * s;
     let filled = if mute {
         0
     } else {
@@ -1036,39 +1121,48 @@ fn draw_volume(canvas: &mut Canvas, x: i32, y: i32, volume: i64, mute: bool, col
         if i < filled {
             canvas.vline(x + i, top, col_h, colour);
         } else {
-            canvas.set(x + i, top, colour);
-            canvas.set(x + i, y + h - 1, colour);
+            canvas.fill_rect(x + i, top, 1, s, colour);
+            canvas.fill_rect(x + i, y + h - s, 1, s, colour);
         }
     }
 }
 
-/// Four bars for Wi-Fi, lit to the quality; a plug for a cable.
-fn draw_connection(canvas: &mut Canvas, x: i32, y: i32, connection: Connection, colour: Colour) {
+/// Four bars for Wi-Fi, lit to the quality; a plug for a cable. 12 by 8
+/// pixels at scale 1.
+fn draw_connection(
+    canvas: &mut Canvas,
+    x: i32,
+    y: i32,
+    s: i32,
+    connection: Connection,
+    colour: Colour,
+) {
     match connection {
         Connection::Wifi(quality) => {
             for i in 0..4 {
-                let bar_h = 2 + i * 2;
-                let bx = x + i * 3;
+                let bar_h = (2 + i * 2) * s;
+                let bx = x + i * 3 * s;
                 if i < quality as i32 {
-                    canvas.fill_rect(bx, y + 8 - bar_h, 2, bar_h, colour);
+                    canvas.fill_rect(bx, y + 8 * s - bar_h, 2 * s, bar_h, colour);
                 } else {
-                    canvas.set(bx, y + 7, colour);
-                    canvas.set(bx + 1, y + 7, colour);
+                    canvas.fill_rect(bx, y + 7 * s, 2 * s, s, colour);
                 }
             }
         }
         Connection::Ethernet => {
-            canvas.rect(x + 1, y + 1, 10, 6, colour);
-            canvas.fill_rect(x + 3, y + 5, 6, 2, colour);
-            canvas.hline(x + 3, y + 3, 6, colour);
+            for k in 0..s {
+                canvas.rect(x + s + k, y + s + k, 10 * s - 2 * k, 6 * s - 2 * k, colour);
+            }
+            canvas.fill_rect(x + 3 * s, y + 5 * s, 6 * s, 2 * s, colour);
+            canvas.fill_rect(x + 3 * s, y + 3 * s, 6 * s, s, colour);
         }
         Connection::None => {}
     }
 }
 
 /// The RMS as a bar across the box and the peak as a mark, in decibels.
-fn draw_level(canvas: &mut Canvas, r: Rect, bars: &Bars, pal: &Palette) {
-    let bar_h = (r.h / 3).clamp(2, 12);
+fn draw_level(canvas: &mut Canvas, r: Rect, s: i32, bars: &Bars, pal: &Palette) {
+    let bar_h = (r.h / 3).clamp(2, 12 * s);
     let top = r.y + (r.h - bar_h) / 2;
     let rms = (bars.height(bars.rms_level()) * r.w as f32).round() as i32;
     let peak = (bars.height(bars.peak_level()) * r.w as f32).round() as i32;
@@ -1081,13 +1175,14 @@ fn draw_level(canvas: &mut Canvas, r: Rect, bars: &Bars, pal: &Palette) {
 /// Left and right as two horizontal bars with their letters: the RMS
 /// filled, the peak a mark, the top tenth in the high colour. A box too
 /// low for the letters shows the two bars alone.
-fn draw_vu(canvas: &mut Canvas, r: Rect, bars: &Bars, peaks: bool, pal: &Palette) {
+fn draw_vu(canvas: &mut Canvas, r: Rect, fonts: Fonts, bars: &Bars, peaks: bool, pal: &Palette) {
+    let font = fonts.small;
     let row_h = r.h / 2;
-    let lettered = row_h >= SMALL.line_height as i32 - 3;
-    let label_w = if lettered { SMALL.width("R") + 3 } else { 0 };
+    let lettered = row_h >= font.line_height as i32 - 3;
+    let label_w = if lettered { font.width("R") + 3 } else { 0 };
     let bar_x = r.x + label_w;
     let bar_w = r.w - label_w;
-    let bar_h = (row_h - if lettered { 4 } else { 2 }).clamp(2, 12);
+    let bar_h = (row_h - if lettered { 4 } else { 2 }).clamp(2, 12 * fonts.scale);
     let rms = bars.rms_lr();
     let peak = bars.peak_lr();
     for (ch, letter) in ["L", "R"].iter().enumerate() {
@@ -1095,9 +1190,9 @@ fn draw_vu(canvas: &mut Canvas, r: Rect, bars: &Bars, peaks: bool, pal: &Palette
         let top = row_y + (row_h - bar_h) / 2;
         if lettered {
             canvas.text(
-                SMALL,
+                font,
                 r.x,
-                row_y + (row_h - SMALL.line_height as i32) / 2,
+                row_y + (row_h - font.line_height as i32) / 2,
                 letter,
                 pal.detail,
             );
@@ -1153,48 +1248,69 @@ pub fn standby(canvas: &mut Canvas, clock: &str, date: &str, net: &Net, look: &L
     let w = canvas.width() as i32;
     let h = canvas.height() as i32;
     let pal = palette(canvas.format(), &look.theme);
+    let f = Fonts::for_panel(w, h);
     if h < 40 {
-        let y = (h - MEDIUM.line_height as i32) / 2;
-        canvas.text_centred(MEDIUM, 0, y, w, clock, pal.title);
+        let y = (h - f.medium.line_height as i32) / 2;
+        canvas.text_centred(f.medium, 0, y, w, clock, pal.title);
         return;
     }
-    let small = SMALL.line_height as i32;
+    let small = f.small.line_height as i32;
     if look.show_ip && !net.ip.is_empty() {
-        canvas.text(SMALL, 1, 0, &net.ip, pal.detail);
+        canvas.text(f.small, 1, 0, &net.ip, pal.detail);
     }
     if net.connection != Connection::None {
-        draw_connection(canvas, w - 13, 3, net.connection, pal.detail);
+        let s = f.scale;
+        draw_connection(canvas, w - 13 * s, 3 * s, s, net.connection, pal.detail);
     }
-    // The face and its pixel doubling by what is left between the rows,
-    // stepping down when the text (a 12-hour clock with its am/pm) is wide.
+    // The time in the clock digits where they fit, a 12-hour form's am/pm
+    // beside them in the medium face on the same baseline; else a doubled
+    // or plain large face, else the medium, stepping down as the text is
+    // wide.
     let room = h - 2 * small;
-    let mut choices: Vec<(&Font, i32)> = Vec::new();
-    if room >= 62 {
-        choices.push((LARGE, 2));
-    }
-    if room >= 32 {
-        choices.push((LARGE, 1));
-    }
-    choices.push((MEDIUM, 1));
-    let (font, scale) = choices
-        .iter()
-        .copied()
-        .find(|(f, s)| f.width(clock) * s <= w - 2)
-        .unwrap_or((MEDIUM, 1));
-    let text_w = font.width(clock) * scale;
-    let text_h = font.line_height as i32 * scale;
-    canvas.text_scaled(
-        font,
-        (w - text_w) / 2,
-        small + (room - text_h) / 2,
-        clock,
-        pal.title,
-        scale,
-    );
-    let date_font = if h >= 120 && MEDIUM.width(date) <= w - 2 {
-        MEDIUM
+    let top = small;
+    let (digits, suffix) = match clock.rsplit_once(' ') {
+        Some((d, s)) if !CLOCK.covers(clock) && CLOCK.covers(d) => (d, Some(s)),
+        _ => (clock, None),
+    };
+    let suffix_w = suffix.map_or(0, |s| f.medium.width(s) + 6);
+    let digits_w = CLOCK.width(digits);
+    if room >= CLOCK.line_height as i32 && CLOCK.covers(digits) && digits_w + suffix_w <= w - 2 {
+        let x = (w - digits_w - suffix_w) / 2;
+        let y = top + (room - CLOCK.line_height as i32) / 2;
+        canvas.text(CLOCK, x, y, digits, pal.title);
+        if let Some(s) = suffix {
+            let y = y + (CLOCK.ascent as i32 - f.medium.ascent as i32);
+            canvas.text(f.medium, x + digits_w + 6, y, s, pal.title);
+        }
     } else {
-        SMALL
+        let mut choices: Vec<(&Font, i32)> = Vec::new();
+        if room >= 2 * f.large.line_height as i32 + 2 {
+            choices.push((f.large, 2));
+        }
+        if room >= f.large.line_height as i32 + 2 {
+            choices.push((f.large, 1));
+        }
+        choices.push((f.medium, 1));
+        let (font, scale) = choices
+            .iter()
+            .copied()
+            .find(|(f, s)| f.width(clock) * s <= w - 2)
+            .unwrap_or((f.medium, 1));
+        let text_w = font.width(clock) * scale;
+        let text_h = font.line_height as i32 * scale;
+        canvas.text_scaled(
+            font,
+            (w - text_w) / 2,
+            top + (room - text_h) / 2,
+            clock,
+            pal.title,
+            scale,
+        );
+    }
+    let date_font = if h >= 120 && f.medium.width(date) <= w - 2 {
+        f.medium
+    } else {
+        f.small
     };
     let fitted = date_font.fit(date, w - 2);
     canvas.text_centred(
@@ -1446,6 +1562,103 @@ mod tests {
     }
 
     #[test]
+    fn a_large_panel_steps_every_face_up_and_keeps_the_meter() {
+        assert_eq!(font_for(240).line_height, 40);
+        let f = Fonts::for_panel(320, 240);
+        assert_eq!(
+            (
+                f.small.line_height,
+                f.medium.line_height,
+                f.large.line_height
+            ),
+            (20, 30, 40)
+        );
+        // A tall narrow glass (the 1.14" in portrait) keeps the OLED faces.
+        assert_eq!(Fonts::for_panel(135, 240).small.line_height, 15);
+        assert_eq!(Fonts::for_panel(128, 128).small.line_height, 15);
+        let dflt = Look::default();
+        let l = layout(320, 240, Face::Spectrum, &dflt);
+        assert_eq!(l.fonts.small.line_height, 20);
+        assert_eq!(l.title.unwrap().1.line_height, 20);
+        assert_eq!(l.line.unwrap().1.line_height, 20);
+        assert_eq!(l.time.unwrap().h, 20, "the info row is a small line tall");
+        assert_eq!(l.progress.unwrap().h, 3);
+        assert!(l.meter.unwrap().h >= 150, "{l:?}");
+        assert_eq!(bar_count(320, 240, &dflt), 64);
+        // Full text: the title in the medium face, album and artist rows, the
+        // meter still at least half the panel.
+        let full = look(
+            Face::Spectrum,
+            TrackText::Full,
+            TimeDisplay::ElapsedTotal,
+            true,
+        );
+        let l = layout(320, 240, Face::Spectrum, &full);
+        assert_eq!(l.title.unwrap().1.line_height, 30);
+        assert!(l.album.is_some() && l.artist.is_some());
+        assert!(l.meter.unwrap().h >= 120, "{l:?}");
+        let (title, _) = l.title.unwrap();
+        assert!(title.y + title.h <= l.progress.unwrap().y, "{l:?}");
+        // The text face: the title in the huge face.
+        let l = layout(320, 240, Face::Text, &dflt);
+        assert_eq!(l.title.unwrap().1.line_height, 40);
+        assert_eq!(l.artist.unwrap().1.line_height, 30);
+        assert!(l.album.is_some() && l.time.is_some());
+        // The square 240x240 is the large class too; the 128x128 is not.
+        assert_eq!(
+            layout(240, 240, Face::Spectrum, &dflt)
+                .fonts
+                .small
+                .line_height,
+            20
+        );
+        assert_eq!(
+            layout(128, 128, Face::Spectrum, &dflt)
+                .fonts
+                .small
+                .line_height,
+            15
+        );
+    }
+
+    #[test]
+    fn the_standby_clock_takes_the_digits_face_where_it_fits() {
+        let net = Net::default();
+        let look = Look::default();
+        // 320x240: the 80-row digits, the date in the medium face.
+        let mut c = Canvas::new(Format::Rgb565, 320, 240);
+        standby(&mut c, "12:34", "Tue 28 Oct", &net, &look);
+        let rows = lit_rows(&c);
+        let clock_rows: Vec<i32> = rows
+            .iter()
+            .copied()
+            .filter(|&y| (20..200).contains(&y))
+            .collect();
+        let span = clock_rows.last().unwrap() - clock_rows.first().unwrap() + 1;
+        assert!(
+            (44..=66).contains(&span),
+            "digit ink {span} rows: {clock_rows:?}"
+        );
+        // A 12-hour clock: the digits in the clock face, the am/pm beside
+        // them, not a doubled face; the same ink height for the digits.
+        let mut c = Canvas::new(Format::Rgb565, 320, 240);
+        standby(&mut c, "12:34 pm", "Tue 28 Oct", &net, &look);
+        let rows = lit_rows(&c);
+        let clock_rows: Vec<i32> = rows
+            .iter()
+            .copied()
+            .filter(|&y| (20..200).contains(&y))
+            .collect();
+        let span2 = clock_rows.last().unwrap() - clock_rows.first().unwrap() + 1;
+        assert!((span2 - span).abs() <= 8, "{span} vs {span2}");
+        // 128x128 keeps its way: the digits face does not fit 126 pixels.
+        assert!(CLOCK.width("12:34") > 126);
+        let mut c = Canvas::new(Format::Rgb565, 128, 128);
+        standby(&mut c, "12:34", "Tue 28 Oct", &net, &look);
+        assert!(!lit_rows(&c).is_empty());
+    }
+
+    #[test]
     fn text_rows_are_centred_and_cut_to_what_fits() {
         let theme = Theme::default();
         let mut c = Canvas::new(Format::Paged1, 128, 32);
@@ -1651,13 +1864,13 @@ mod tests {
             bitrate: "320 kbps".into(),
             ..Default::default()
         };
-        assert_eq!(format_text(&t, 200), "44.1k 16b");
-        assert_eq!(format_text(&t, 40), "44.1k");
+        assert_eq!(format_text(&t, SMALL, 200), "44.1k 16b");
+        assert_eq!(format_text(&t, SMALL, 40), "44.1k");
         let radio = Track {
             bitrate: "128 kbps".into(),
             ..Default::default()
         };
-        assert_eq!(format_text(&radio, 200), "128k");
+        assert_eq!(format_text(&radio, SMALL, 200), "128k");
     }
 
     #[test]

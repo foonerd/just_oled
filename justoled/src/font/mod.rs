@@ -11,6 +11,8 @@
 mod evo_12;
 mod evo_16;
 mod evo_24;
+mod evo_32;
+mod evo_64;
 
 /// A glyph's ink and metrics: `left` and `top` place the ink's box in the
 /// line's cell, the pen moves on by `advance`.
@@ -44,6 +46,11 @@ pub const SMALL: &Font = &evo_12::FONT;
 pub const MEDIUM: &Font = &evo_16::FONT;
 /// 30-pixel lines: titles on a 128-pixel panel.
 pub const LARGE: &Font = &evo_24::FONT;
+/// 40-pixel lines: titles on a panel of 200 rows and more.
+pub const HUGE: &Font = &evo_32::FONT;
+/// 80-pixel lines, the digits, colon, dot, dash and slash alone: the
+/// standby clock where it fits, in place of a doubled smaller face.
+pub const CLOCK: &Font = &evo_64::FONT;
 
 impl Font {
     /// The glyph for `ch`, or `None` when the font has no such ink.
@@ -53,6 +60,11 @@ impl Font {
             .binary_search_by_key(&cp, |g| g.ch)
             .ok()
             .map(|i| &self.glyphs[i])
+    }
+
+    /// Whether every character of `text` has its own glyph in the font.
+    pub fn covers(&self, text: &str) -> bool {
+        text.chars().all(|c| self.glyph(c).is_some())
     }
 
     /// The glyph for `ch`, else the one drawn in its place: the
@@ -132,6 +144,11 @@ mod tests {
         assert_eq!(SMALL.line_height, 15);
         assert_eq!(MEDIUM.line_height, 20);
         assert_eq!(LARGE.line_height, 30);
+        assert_eq!(HUGE.line_height, 40);
+        assert_eq!(CLOCK.line_height, 80);
+        assert!(CLOCK.covers("12:34 23.10. 1/2 -"));
+        assert!(!CLOCK.covers("12:34 pm"));
+        assert!(HUGE.covers("Ärger Ωμέγα Ёлка €"));
     }
 
     #[test]
