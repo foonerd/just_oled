@@ -5,8 +5,9 @@ const assert = require('node:assert/strict');
 const boot = require('../lib/boot');
 
 test('the presets name the pins, custom leaves them alone', () => {
-    assert.deepEqual(boot.preset('spi'), { bus: 'spi', spi_bus: 0, spi_cs: 0, gpio_dc: 24, gpio_reset: 25 });
-    assert.deepEqual(boot.preset('spi_waveshare'), { bus: 'spi', spi_bus: 0, spi_cs: 0, gpio_dc: 25, gpio_reset: 27 });
+    assert.deepEqual(boot.preset('spi'), { bus: 'spi', spi_bus: 0, spi_cs: 0, gpio_dc: 24, gpio_reset: 25, gpio_bl: 18 });
+    assert.deepEqual(boot.preset('spi_waveshare'), { bus: 'spi', spi_bus: 0, spi_cs: 0, gpio_dc: 25, gpio_reset: 27, gpio_bl: 18 });
+    assert.deepEqual(boot.preset('spi_pirate'), { bus: 'spi', spi_bus: 0, spi_cs: 1, gpio_dc: 9, gpio_reset: -1, gpio_bl: 13 });
     assert.deepEqual(boot.preset('spi_custom'), { bus: 'spi' });
     assert.deepEqual(boot.preset('i2c_custom'), { bus: 'i2c' });
     assert.equal(boot.preset('nonsense').bus, 'i2c');
