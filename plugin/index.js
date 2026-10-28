@@ -30,10 +30,14 @@ var ASOUND_MARK = 'Just OLED section';
 var USERCONFIG = '/boot/userconfig.txt';
 var id = 'just_oled: ';
 
-// The keys each settings section saves, and how each is read from the form.
+// How each known key is read from the form. The keys a section saves are
+// UIConfig.json's, read when Save is pressed: Volumio keeps a plugin's
+// code in memory across an update, so a control added by the update is
+// saved by the code of the version before.
 var SELECTS = ['connection', 'panel', 'i2c_address', 'i2c_speed', 'rotate', 'face', 'track_text', 'time_display', 'theme', 'idle_screen', 'clock_format', 'date_format'];
 var NUMBERS = ['i2c_bus', 'i2c_sda', 'i2c_scl', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset', 'gpio_bl', 'meter_gain', 'pause_timeout', 'idle_timeout'];
 var SWITCHES = ['show_lifecycle', 'show_format', 'peaks', 'meter_wide', 'pause_standby', 'show_ip'];
+var UI_CONFIG = path.join(__dirname, 'UIConfig.json');
 
 module.exports = JustOled;
 
@@ -330,7 +334,8 @@ JustOled.prototype.setUIConfig = function () { };
 JustOled.prototype.getConf = function (varName) { return this.config.get(varName); };
 JustOled.prototype.setConf = function (varName, varValue) { this.config.set(varName, varValue); };
 
-// A form value into the store, by the kind of control it came from.
+// A form value into the store, by the kind of control it came from; a
+// key not in the lists is read by its shape.
 JustOled.prototype.take = function (data, key) {
     var self = this;
     if (!(key in data)) {
@@ -344,13 +349,33 @@ JustOled.prototype.take = function (data, key) {
         if (!isNaN(n)) { self.config.set(key, n); }
     } else if (SWITCHES.indexOf(key) !== -1) {
         self.config.set(key, raw === true || raw === 'true');
+    } else if (raw && typeof raw === 'object' && 'value' in raw) {
+        self.config.set(key, String(raw.value));
+    } else if (typeof raw === 'boolean' || typeof raw === 'number') {
+        self.config.set(key, raw);
     } else {
         self.config.set(key, String(raw === undefined || raw === null ? '' : raw));
     }
 };
 
-JustOled.prototype.saveSection = function (data, keys, after) {
+// The keys the section saved by `method` declares in UIConfig.json.
+function sectionKeys(method) {
+    var ui = JSON.parse(fs.readFileSync(UI_CONFIG, 'utf8'));
+    var section = (ui.sections || []).filter(function (s) {
+        return s.onSave && s.onSave.method === method;
+    })[0];
+    return section && section.saveButton && Array.isArray(section.saveButton.data) ? section.saveButton.data : [];
+}
+
+JustOled.prototype.saveSection = function (data, method, after) {
     var self = this;
+    var keys;
+    try {
+        keys = sectionKeys(method);
+    } catch (e) {
+        self.logger.error(id + method + ': ' + UI_CONFIG + ' unreadable: ' + (e && e.message ? e.message : e));
+        keys = [];
+    }
     keys.forEach(function (key) { self.take(data, key); });
     var name = self.commandRouter.getI18nString('JUSTOLED.PLUGIN_NAME');
     var note = after ? after() : null;
@@ -363,7 +388,7 @@ JustOled.prototype.saveSection = function (data, keys, after) {
 // and the drawings read one set of keys whichever way they were chosen.
 JustOled.prototype.saveConnection = function (data) {
     var self = this;
-    return self.saveSection(data, ['connection', 'panel', 'i2c_bus', 'i2c_sda', 'i2c_scl', 'i2c_address', 'i2c_speed', 'spi_bus', 'spi_cs', 'gpio_dc', 'gpio_reset', 'gpio_bl', 'rotate'], function () {
+    return self.saveSection(data, 'saveConnection', function () {
         var connection = self.config.get('connection');
         var fixed = boot.preset(connection);
         Object.keys(fixed).forEach(function (key) {
@@ -382,15 +407,15 @@ JustOled.prototype.saveConnection = function (data) {
 };
 
 JustOled.prototype.saveFace = function (data) {
-    return this.saveSection(data, ['face', 'track_text', 'time_display', 'show_format', 'peaks', 'meter_gain', 'meter_wide', 'theme', 'colour_title', 'colour_detail', 'colour_bar_low', 'colour_bar_high', 'colour_peak', 'colour_progress']);
+    return this.saveSection(data, 'saveFace');
 };
 
 JustOled.prototype.saveStandby = function (data) {
-    return this.saveSection(data, ['pause_standby', 'pause_timeout', 'idle_screen', 'idle_timeout', 'clock_format', 'date_format', 'show_ip']);
+    return this.saveSection(data, 'saveStandby');
 };
 
 JustOled.prototype.saveMessages = function (data) {
-    return this.saveSection(data, ['show_lifecycle', 'text_boot', 'text_ready', 'text_pause', 'text_shutdown', 'text_reboot']);
+    return this.saveSection(data, 'saveMessages');
 };
 
 // The lines for a custom I2C bus or a faster clock into /boot/userconfig.txt,
@@ -553,3 +578,4 @@ JustOled.prototype.getI18nFile = function (langCode) {
 JustOled.parseI2cdetect = parseI2cdetect;
 JustOled.panelOptions = panelOptions;
 JustOled.stateForDaemon = stateForDaemon;
+JustOled.sectionKeys = sectionKeys;

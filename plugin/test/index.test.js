@@ -7,13 +7,54 @@ const assert = require('node:assert/strict');
 const Module = require('module');
 const original = Module._load;
 Module._load = function (request, parent, isMain) {
-    if (['kew', 'fs-extra', 'socket.io-client', 'v-conf'].includes(request)) {
-        return {};
+    if (['kew', 'socket.io-client', 'v-conf'].includes(request)) {
+        return { resolve: () => ({}) };
+    }
+    if (request === 'fs-extra') {
+        return require('node:fs');
     }
     return original.call(this, request, parent, isMain);
 };
-const { parseI2cdetect, panelOptions, stateForDaemon } = require('../index');
+const JustOled = require('../index');
+const { parseI2cdetect, panelOptions, stateForDaemon, sectionKeys } = JustOled;
 Module._load = original;
+
+// A plugin with a store and a command router that only remember what they were given.
+function plugin() {
+    const store = {};
+    const p = Object.create(JustOled.prototype);
+    p.config = { set: (k, v) => { store[k] = v; }, get: (k) => store[k] };
+    p.logger = { error: () => { }, info: () => { } };
+    p.commandRouter = { getI18nString: (k) => k, pushToastMessage: () => { } };
+    p.reloadDaemon = () => { };
+    p.applyBootConfig = () => ({ changed: false });
+    return { p, store };
+}
+
+test('a section saves the keys UIConfig.json declares for it, by their shape', () => {
+    assert.deepEqual(sectionKeys('saveMessages'), ['show_lifecycle', 'text_boot', 'text_ready', 'text_pause', 'text_shutdown', 'text_reboot']);
+    assert.ok(sectionKeys('saveConnection').includes('gpio_bl'));
+    assert.deepEqual(sectionKeys('saveNothing'), []);
+    const { p, store } = plugin();
+    p.saveMessages({ show_lifecycle: 'true', text_boot: 'Hi|there', text_ready: 'x', stray: 'no', text_pause: 'p' });
+    assert.deepEqual(store, { show_lifecycle: true, text_boot: 'Hi|there', text_ready: 'x', text_pause: 'p' });
+    // A select, a number and a switch not in the type lists still land by shape.
+    const { p: q, store: s2 } = plugin();
+    q.take({ a: { value: 'v', label: 'L' }, b: 7, c: false, d: 'text' }, 'a');
+    q.take({ b: 7 }, 'b');
+    q.take({ c: false }, 'c');
+    q.take({ d: 'text' }, 'd');
+    assert.deepEqual(s2, { a: 'v', b: 7, c: false, d: 'text' });
+});
+
+test('saving the connection writes the preset\'s pins over the form\'s', () => {
+    const { p, store } = plugin();
+    p.saveConnection({ connection: { value: 'spi_pirate' }, panel: { value: 'st7789_240x240' }, gpio_dc: 24, rotate: { value: '90' } });
+    assert.equal(store.connection, 'spi_pirate');
+    assert.equal(store.panel, 'st7789_240x240');
+    assert.deepEqual([store.spi_cs, store.gpio_dc, store.gpio_reset, store.gpio_bl], [1, 9, -1, 13]);
+    assert.equal(store.rotate, '90');
+});
 
 test('the addresses in an i2cdetect table are read, the blanks and UU skipped', () => {
     const table = [
