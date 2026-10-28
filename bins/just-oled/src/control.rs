@@ -179,6 +179,8 @@ fn pong(r: &Report) -> String {
     let mut m = BTreeMap::new();
     m.insert("kind".into(), Value::String("pong".into()));
     m.insert("version".into(), Value::String(justoled::VERSION.into()));
+    // The process: a client that sees another one knows the daemon started anew.
+    m.insert("pid".into(), Value::Number(f64::from(std::process::id())));
     m.insert("panel".into(), opt(&r.panel));
     m.insert("panelError".into(), opt(&r.panel_error));
     m.insert("ring".into(), Value::Bool(r.ring));
@@ -359,6 +361,10 @@ mod tests {
         assert_eq!(
             v.get("version").and_then(Value::as_str),
             Some(justoled::VERSION)
+        );
+        assert_eq!(
+            v.get("pid").and_then(Value::as_f64),
+            Some(f64::from(std::process::id()))
         );
         let _ = std::fs::remove_file(&path);
     }

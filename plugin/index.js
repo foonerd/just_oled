@@ -29,6 +29,10 @@ var ASOUND_FILE = '/etc/asound.conf';
 var ASOUND_MARK = 'Just OLED section';
 var USERCONFIG = '/boot/userconfig.txt';
 var id = 'just_oled: ';
+// How often the daemon is asked who it is, so one started without the
+// plugin (after a crash, an update, a hand restart) gets the player's
+// state rather than waiting for the next change.
+var HEARTBEAT_MS = 15000;
 
 // How each known key is read from the form. The keys a section saves are
 // UIConfig.json's, read when Save is pressed: Volumio keeps a plugin's
@@ -48,6 +52,8 @@ function JustOled(context) {
     this.configManager = context.configManager;
     this.volumioSocket = null;
     this.readyTimer = null;
+    this.heartbeat = null;
+    this.daemonPid = null;
     this.restartAsked = false;
 }
 
@@ -79,6 +85,7 @@ JustOled.prototype.onStart = function () {
         self.tellReady(10);
     });
     self.followPlayer();
+    self.heartbeat = setInterval(function () { self.checkDaemon(); }, HEARTBEAT_MS);
     // Volumio reads a plugin's ALSA contribution from the list it built at
     // start; a plugin installed since then joins the chain after a restart.
     setTimeout(function () { self.checkAlsaChain(); }, 12000);
@@ -90,6 +97,8 @@ JustOled.prototype.onStart = function () {
 JustOled.prototype.onStop = function () {
     var self = this;
     if (self.readyTimer) { clearTimeout(self.readyTimer); self.readyTimer = null; }
+    if (self.heartbeat) { clearInterval(self.heartbeat); self.heartbeat = null; }
+    self.daemonPid = null;
     if (self.volumioSocket) {
         try { self.volumioSocket.off('pushState'); self.volumioSocket.disconnect(); } catch (e) { /* gone already */ }
         self.volumioSocket = null;
@@ -222,6 +231,51 @@ JustOled.prototype.send = function (message, done) {
     client.on('close', function () { finish(null); });
 };
 
+// One line to the daemon and its one-line answer; `done(err, reply)` once.
+JustOled.prototype.ask = function (message, done) {
+    var finished = false;
+    var finish = function (err, reply) { if (!finished) { finished = true; done(err, reply); } };
+    var got = '';
+    var client = net.createConnection(socketPath());
+    client.setTimeout(2000);
+    client.on('connect', function () { client.write(JSON.stringify(message) + '\n'); });
+    client.on('data', function (chunk) {
+        got += chunk.toString();
+        var nl = got.indexOf('\n');
+        if (nl !== -1) {
+            var reply = null;
+            try { reply = JSON.parse(got.slice(0, nl)); } catch (e) { /* not ours */ }
+            client.end();
+            finish(reply ? null : new Error('no answer'), reply);
+        }
+    });
+    client.on('error', function (e) { finish(e); });
+    client.on('timeout', function () { client.destroy(); finish(new Error('timeout')); });
+    client.on('close', function () { finish(new Error('closed')); });
+};
+
+// Whether `pong` comes from a daemon other than the one last seen as `known`.
+function daemonIsNew(pong, known) {
+    return !!pong && pong.kind === 'pong' && typeof pong.pid === 'number' && pong.pid !== known;
+}
+
+// The heartbeat: a daemon not seen before is given the player's state,
+// fetched from Volumio so the position is current; a state replayed from
+// memory would set the clock back to where it was when it arrived. The
+// first sighting counts too: a daemon up later than the ready retries
+// would otherwise wait for the player's next change.
+JustOled.prototype.checkDaemon = function () {
+    var self = this;
+    self.ask({ kind: 'ping' }, function (err, pong) {
+        if (err || !daemonIsNew(pong, self.daemonPid)) {
+            return;
+        }
+        self.logger.info(id + 'daemon pid ' + pong.pid + (self.daemonPid === null ? '' : ', started anew') + '; asking for the player state');
+        self.daemonPid = pong.pid;
+        self.askState();
+    });
+};
+
 // The daemon shows the ready rows once the plugin has started; a daemon
 // still coming up is told again, a few times.
 JustOled.prototype.tellReady = function (tries) {
@@ -236,7 +290,8 @@ JustOled.prototype.tellReady = function (tries) {
 };
 
 // The player's state, as Volumio pushes it, to the daemon: the status and
-// what is playing, for the now-playing page.
+// what is playing, for the now-playing page. A (re)connected link asks
+// for the state, so nothing pushed while it was down is missed.
 JustOled.prototype.followPlayer = function () {
     var self = this;
     self.volumioSocket = io.connect('http://localhost:3000');
@@ -247,15 +302,22 @@ JustOled.prototype.followPlayer = function () {
         self.lastState = stateForDaemon(state);
         self.send(self.lastState);
     });
-    self.volumioSocket.emit('getState', '');
+    self.volumioSocket.on('connect', function () { self.askState(); });
+};
+
+// Volumio's current state, which comes back as a pushState.
+JustOled.prototype.askState = function () {
+    if (this.volumioSocket) {
+        this.volumioSocket.emit('getState', '');
+    }
 };
 
 JustOled.prototype.pushState = function () {
     var self = this;
     if (self.lastState) {
         self.send(self.lastState);
-    } else if (self.volumioSocket) {
-        self.volumioSocket.emit('getState', '');
+    } else {
+        self.askState();
     }
 };
 
@@ -579,3 +641,4 @@ JustOled.parseI2cdetect = parseI2cdetect;
 JustOled.panelOptions = panelOptions;
 JustOled.stateForDaemon = stateForDaemon;
 JustOled.sectionKeys = sectionKeys;
+JustOled.daemonIsNew = daemonIsNew;

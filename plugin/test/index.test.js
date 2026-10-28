@@ -16,7 +16,7 @@ Module._load = function (request, parent, isMain) {
     return original.call(this, request, parent, isMain);
 };
 const JustOled = require('../index');
-const { parseI2cdetect, panelOptions, stateForDaemon, sectionKeys } = JustOled;
+const { parseI2cdetect, panelOptions, stateForDaemon, sectionKeys, daemonIsNew } = JustOled;
 Module._load = original;
 
 // A plugin with a store and a command router that only remember what they were given.
@@ -54,6 +54,45 @@ test('saving the connection writes the preset\'s pins over the form\'s', () => {
     assert.equal(store.panel, 'st7789_240x240');
     assert.deepEqual([store.spi_cs, store.gpio_dc, store.gpio_reset, store.gpio_bl], [1, 9, -1, 13]);
     assert.equal(store.rotate, '90');
+});
+
+test('a daemon not seen before is asked about, the same one is left alone', () => {
+    assert.equal(daemonIsNew({ kind: 'pong', pid: 41 }, null), true);
+    assert.equal(daemonIsNew({ kind: 'pong', pid: 41 }, 41), false);
+    assert.equal(daemonIsNew({ kind: 'pong', pid: 42 }, 41), true);
+    assert.equal(daemonIsNew({ kind: 'pong' }, null), false, 'an older daemon without a pid');
+    assert.equal(daemonIsNew({ kind: 'state', pid: 1 }, null), false);
+    assert.equal(daemonIsNew(null, null), false);
+    // The heartbeat asks Volumio for the state once per new daemon, never on an error.
+    const { p } = plugin();
+    const asked = [];
+    p.volumioSocket = { emit: (ev) => asked.push(ev) };
+    const answers = [[null, { kind: 'pong', pid: 7 }], [null, { kind: 'pong', pid: 7 }], [new Error('refused'), undefined], [null, { kind: 'pong', pid: 9 }]];
+    p.ask = (msg, done) => { assert.deepEqual(msg, { kind: 'ping' }); done(...answers.shift()); };
+    for (let i = 0; i < 4; i++) p.checkDaemon();
+    assert.deepEqual(asked, ['getState', 'getState']);
+    assert.equal(p.daemonPid, 9);
+});
+
+test('ask reads the one-line answer, and reports a daemon that is not there', async () => {
+    const net = require('node:net');
+    const fs = require('node:fs');
+    const sock = '/tmp/just-oled.sock';
+    try { fs.unlinkSync(sock); } catch (e) { /* none */ }
+    const server = net.createServer((c) => {
+        c.on('data', (d) => {
+            assert.equal(d.toString(), '{"kind":"ping"}\n');
+            c.write('{"kind":"pong","pid":123}\n');
+        });
+    });
+    await new Promise((ok) => server.listen(sock, ok));
+    const { p } = plugin();
+    const reply = await new Promise((ok) => p.ask({ kind: 'ping' }, (err, pong) => ok([err, pong])));
+    assert.equal(reply[0], null);
+    assert.deepEqual(reply[1], { kind: 'pong', pid: 123 });
+    await new Promise((ok) => server.close(ok));
+    const gone = await new Promise((ok) => p.ask({ kind: 'ping' }, (err) => ok(err)));
+    assert.ok(gone instanceof Error);
 });
 
 test('the addresses in an i2cdetect table are read, the blanks and UU skipped', () => {
