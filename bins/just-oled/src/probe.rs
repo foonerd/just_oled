@@ -107,11 +107,25 @@ pub fn report(settings: Result<&Settings, &str>) -> String {
                 s.entry.verified.name()
             );
             match &s.wiring {
-                Wiring::Spi { bus, cs, dc, reset } => {
+                Wiring::Spi {
+                    bus,
+                    cs,
+                    dc,
+                    reset,
+                    backlight,
+                } => {
                     let _ = writeln!(
                         out,
-                        "  SPI /dev/spidev{bus}.{cs}, DC GPIO {dc}, reset {} - device {}",
+                        "  SPI /dev/spidev{bus}.{cs}, DC GPIO {dc}, reset {}{} - device {}",
                         reset.map_or("not wired".to_string(), |r| format!("GPIO {r}")),
+                        if s.entry.controller.is_tft() {
+                            format!(
+                                ", backlight {}",
+                                backlight.map_or("not wired".to_string(), |b| format!("GPIO {b}"))
+                            )
+                        } else {
+                            String::new()
+                        },
                         if spi::device_exists(*bus, *cs) {
                             "present"
                         } else {

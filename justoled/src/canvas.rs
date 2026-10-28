@@ -55,17 +55,38 @@ impl Colour {
 pub enum Rotate {
     #[default]
     Normal,
+    /// A quarter turn clockwise. The canvas does not turn this way itself;
+    /// a controller with a memory access control register does, and the
+    /// driver swaps the frame's sides.
+    Quarter,
     /// Turned half way round, for a module mounted upside down.
     Half,
+    /// Three quarters clockwise; as `Quarter`, the controller's turn.
+    ThreeQuarter,
 }
 
 impl Rotate {
     /// From the settings value, anything unknown being normal.
     pub fn from_degrees(degrees: i64) -> Rotate {
-        if degrees == 180 {
-            Rotate::Half
-        } else {
-            Rotate::Normal
+        match degrees {
+            90 => Rotate::Quarter,
+            180 => Rotate::Half,
+            270 => Rotate::ThreeQuarter,
+            _ => Rotate::Normal,
+        }
+    }
+
+    /// Whether the frame's width and height change places.
+    pub fn swaps_sides(self) -> bool {
+        matches!(self, Rotate::Quarter | Rotate::ThreeQuarter)
+    }
+
+    /// The part of the turn the canvas can do itself: the half turn; a
+    /// quarter turn without a controller to make it shows as normal.
+    pub fn in_software(self) -> Rotate {
+        match self {
+            Rotate::Half => Rotate::Half,
+            _ => Rotate::Normal,
         }
     }
 }
@@ -184,11 +205,11 @@ impl Canvas {
             }
         }
         let (x, y) = match self.rotate {
-            Rotate::Normal => (x as usize, y as usize),
             Rotate::Half => (
                 (self.width as i32 - 1 - x) as usize,
                 (self.height as i32 - 1 - y) as usize,
             ),
+            _ => (x as usize, y as usize),
         };
         let w = self.width as usize;
         match self.format {
@@ -225,11 +246,11 @@ impl Canvas {
             return Colour::BLACK;
         }
         let (x, y) = match self.rotate {
-            Rotate::Normal => (x as usize, y as usize),
             Rotate::Half => (
                 (self.width as i32 - 1 - x) as usize,
                 (self.height as i32 - 1 - y) as usize,
             ),
+            _ => (x as usize, y as usize),
         };
         let w = self.width as usize;
         match self.format {
@@ -383,7 +404,13 @@ mod tests {
         assert!(!Colour::grey(100).on());
         assert_eq!(Rotate::from_degrees(180), Rotate::Half);
         assert_eq!(Rotate::from_degrees(0), Rotate::Normal);
-        assert_eq!(Rotate::from_degrees(90), Rotate::Normal);
+        assert_eq!(Rotate::from_degrees(90), Rotate::Quarter);
+        assert_eq!(Rotate::from_degrees(270), Rotate::ThreeQuarter);
+        assert_eq!(Rotate::from_degrees(45), Rotate::Normal);
+        // The canvas turns half way itself; a quarter turn is the controller's.
+        assert_eq!(Rotate::Quarter.in_software(), Rotate::Normal);
+        assert_eq!(Rotate::Half.in_software(), Rotate::Half);
+        assert!(Rotate::ThreeQuarter.swaps_sides() && !Rotate::Half.swaps_sides());
     }
 
     #[test]

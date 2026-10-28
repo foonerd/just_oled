@@ -6,7 +6,9 @@
 //! by the DC line; I2C by a control byte in front (0x00 command, 0x40
 //! data), as the SSD1306 family and SSD1327 define it. Controllers of the
 //! SSD1351 class take a command's arguments as data (DC high); the SSD1306
-//! class takes them as further commands. Each sequence says which.
+//! class takes them as further commands. Each sequence says which. The
+//! TFT LCDs (ST7789, ST7735, ILI9341) speak the MIPI DCS set, arguments
+//! as data, and add a backlight line and a quarter turn of their own.
 //!
 //! Sequences are transcribed from the controller data sheets and checked
 //! against the module vendor's reference drivers; the entry's `verified`
@@ -16,7 +18,7 @@ use std::io;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::canvas::Canvas;
+use crate::canvas::{Canvas, Rotate};
 use crate::catalog::{Bus, Controller, Entry, Format};
 use crate::sys::{gpio, i2c, spi};
 
@@ -30,6 +32,8 @@ pub enum Wiring {
         dc: u32,
         /// BCM number of the reset line, if wired.
         reset: Option<u32>,
+        /// BCM number of a TFT's backlight line, if wired; an OLED has none.
+        backlight: Option<u32>,
     },
     I2c {
         bus: u8,
@@ -58,9 +62,10 @@ const I2C_CHUNK: usize = 1024;
 enum Link {
     Spi {
         dev: spi::Device,
-        /// DC at index 0; reset at index 1 when wired.
+        /// DC at index 0; the reset and backlight lines at the indices kept.
         lines: gpio::Outputs,
-        has_reset: bool,
+        reset: Option<usize>,
+        backlight: Option<usize>,
     },
     I2c {
         dev: i2c::Device,
@@ -74,23 +79,37 @@ impl Link {
             || gpio::Chip::header().ok_or_else(|| io::Error::other("no GPIO chip under /dev"));
         let named = |what: String, e: io::Error| io::Error::new(e.kind(), format!("{what}: {e}"));
         match *wiring {
-            Wiring::Spi { bus, cs, dc, reset } => {
+            Wiring::Spi {
+                bus,
+                cs,
+                dc,
+                reset,
+                backlight,
+            } => {
                 let (mode, speed) = spi_settings(entry.controller);
                 let dev = spi::Device::open(bus, cs, mode, speed)
                     .map_err(|e| named(format!("/dev/spidev{bus}.{cs}"), e))?;
                 let chip = chip()?;
-                let lines = match reset {
-                    Some(rst) => {
-                        gpio::Outputs::request(&chip.path, &[dc, rst], &[false, true], CONSUMER)
-                            .map_err(|e| named(format!("{} lines {dc} and {rst}", chip.path), e))?
-                    }
-                    None => gpio::Outputs::request(&chip.path, &[dc], &[false], CONSUMER)
-                        .map_err(|e| named(format!("{} line {dc}", chip.path), e))?,
-                };
+                // DC low; reset held high; the backlight dark until the panel is on.
+                let mut offsets = vec![dc];
+                let mut values = vec![false];
+                let reset_index = reset.map(|rst| {
+                    offsets.push(rst);
+                    values.push(true);
+                    offsets.len() - 1
+                });
+                let backlight_index = backlight.filter(|_| entry.controller.is_tft()).map(|bl| {
+                    offsets.push(bl);
+                    values.push(false);
+                    offsets.len() - 1
+                });
+                let lines = gpio::Outputs::request(&chip.path, &offsets, &values, CONSUMER)
+                    .map_err(|e| named(format!("{} lines {offsets:?}", chip.path), e))?;
                 Ok(Link::Spi {
                     dev,
                     lines,
-                    has_reset: reset.is_some(),
+                    reset: reset_index,
+                    backlight: backlight_index,
                 })
             }
             Wiring::I2c { bus, addr, reset } => {
@@ -139,9 +158,9 @@ impl Link {
         let line = match self {
             Link::Spi {
                 lines,
-                has_reset: true,
+                reset: Some(index),
                 ..
-            } => Some((lines, 1)),
+            } => Some((lines, *index)),
             Link::I2c {
                 reset: Some(lines), ..
             } => Some((lines, 0)),
@@ -155,6 +174,19 @@ impl Link {
             lines.set(index, true)?;
         }
         sleep(Duration::from_millis(10));
+        Ok(())
+    }
+
+    /// The backlight line, where one is wired.
+    fn backlight(&self, on: bool) -> io::Result<()> {
+        if let Link::Spi {
+            lines,
+            backlight: Some(index),
+            ..
+        } = self
+        {
+            lines.set(*index, on)?;
+        }
         Ok(())
     }
 }
@@ -179,6 +211,11 @@ fn spi_settings(controller: Controller) -> (u8, u32) {
         Controller::Ssd1351 => (0, 10_000_000),
         // Sino Wealth's sheets give a 250 ns cycle: 4 MHz.
         Controller::Sh1106 | Controller::Sh1107 | Controller::Sh1122 => (0, 4_000_000),
+        // The TFTs take 16 ns cycles (62.5 MHz) writing; 40 MHz is what
+        // Waveshare's demos run, and a 240x320 frame then takes 31 ms.
+        Controller::St7789 | Controller::Ili9341 => (0, 40_000_000),
+        // ST7735: 66 ns cycle, 15 MHz.
+        Controller::St7735 => (0, 15_000_000),
         // Solomon Systech's one-bit and grey controllers: 100 ns cycle, 10 MHz; a step under.
         _ => (0, 8_000_000),
     }
@@ -188,6 +225,8 @@ fn spi_settings(controller: Controller) -> (u8, u32) {
 pub struct Oled {
     entry: &'static Entry,
     link: Link,
+    /// The turn a TFT makes in its controller; `Normal` on an OLED.
+    rotate: Rotate,
 }
 
 impl std::fmt::Debug for Oled {
@@ -216,16 +255,49 @@ impl Oled {
             ));
         }
         let link = Link::open(entry, wiring)?;
-        Ok(Oled { entry, link })
+        Ok(Oled {
+            entry,
+            link,
+            rotate: Rotate::Normal,
+        })
     }
 
     pub fn entry(&self) -> &'static Entry {
         self.entry
     }
 
+    /// Take the turn the settings ask for. A TFT turns in its controller
+    /// and this returns `Normal` for the canvas; an OLED turns in the
+    /// canvas, which can only turn half way, so a quarter turn there
+    /// shows as normal. Call before `init`.
+    pub fn orient(&mut self, rotate: Rotate) -> Rotate {
+        if self.entry.controller.is_tft() {
+            self.rotate = rotate;
+            Rotate::Normal
+        } else {
+            rotate.in_software()
+        }
+    }
+
+    /// The frame's size as the panel shows it, after the controller's turn.
+    pub fn size(&self) -> (u16, u16) {
+        if self.rotate.swaps_sides() {
+            (self.entry.height, self.entry.width)
+        } else {
+            (self.entry.width, self.entry.height)
+        }
+    }
+
     /// A blank frame of the panel's size and format.
     pub fn canvas(&self) -> Canvas {
-        Canvas::new(self.entry.format(), self.entry.width, self.entry.height)
+        let (w, h) = self.size();
+        Canvas::new(self.entry.format(), w, h)
+    }
+
+    /// Whether `show_rows` sends less than the whole frame: the TFTs
+    /// take a row window, the OLEDs here a whole frame.
+    pub fn windowed(&self) -> bool {
+        self.entry.controller.is_tft()
     }
 
     /// Reset, run the controller's start-up sequence, clear the RAM and
@@ -239,6 +311,7 @@ impl Oled {
             Family::Sh1106 => sh1106::init(&self.link, self.entry)?,
             Family::Sh1107 => sh1107::init(&self.link, self.entry)?,
             Family::Grey => grey::init(&self.link, self.entry)?,
+            Family::Tft => tft::init(&self.link, self.entry, self.rotate)?,
             Family::None => return Err(not_driven(self.entry.controller)),
         }
         let blank = self.canvas();
@@ -248,10 +321,8 @@ impl Oled {
 
     /// Send a whole frame. The canvas must be the panel's own.
     pub fn show(&mut self, canvas: &Canvas) -> io::Result<()> {
-        if canvas.format() != self.entry.format()
-            || canvas.width() != self.entry.width
-            || canvas.height() != self.entry.height
-        {
+        let (w, h) = self.size();
+        if canvas.format() != self.entry.format() || canvas.width() != w || canvas.height() != h {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "the frame is not this panel's size",
@@ -263,14 +334,39 @@ impl Oled {
             Family::Ssd1306 => ssd1306::show(&self.link, self.entry, canvas),
             Family::Sh1106 | Family::Sh1107 => paged::show_by_page(&self.link, self.entry, canvas),
             Family::Grey => grey::show(&self.link, self.entry, canvas),
+            Family::Tft => tft::show_rows(&self.link, self.entry, self.rotate, canvas, 0..h),
             Family::None => Err(not_driven(self.entry.controller)),
         }
+    }
+
+    /// Send the rows `first..end` of the frame, where the controller takes
+    /// a window; the whole frame otherwise.
+    pub fn show_rows(&mut self, canvas: &Canvas, rows: std::ops::Range<u16>) -> io::Result<()> {
+        let (w, h) = self.size();
+        if !self.windowed() || (rows.start == 0 && rows.end >= h) {
+            return self.show(canvas);
+        }
+        if canvas.format() != self.entry.format() || canvas.width() != w || canvas.height() != h {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the frame is not this panel's size",
+            ));
+        }
+        let rows = rows.start.min(h)..rows.end.min(h);
+        if rows.is_empty() {
+            return Ok(());
+        }
+        tft::show_rows(&self.link, self.entry, self.rotate, canvas, rows)
     }
 
     pub fn on(&mut self) -> io::Result<()> {
         match family(self.entry.controller) {
             Family::None => Err(not_driven(self.entry.controller)),
-            // The same byte on every controller here.
+            Family::Tft => {
+                self.link.command(&[tft::DISPON])?;
+                self.link.backlight(true)
+            }
+            // The same byte on every OLED controller here.
             _ => self.link.command(&[DISPLAY_ON]),
         }
     }
@@ -279,11 +375,16 @@ impl Oled {
     pub fn off(&mut self) -> io::Result<()> {
         match family(self.entry.controller) {
             Family::None => Err(not_driven(self.entry.controller)),
+            Family::Tft => {
+                self.link.backlight(false)?;
+                self.link.command(&[tft::DISPOFF])
+            }
             _ => self.link.command(&[DISPLAY_OFF]),
         }
     }
 
-    /// Brightness 0..=255 as the controller counts it.
+    /// Brightness 0..=255 as the controller counts it. A TFT's brightness
+    /// is its backlight, which the line here can only switch.
     pub fn contrast(&mut self, level: u8) -> io::Result<()> {
         match family(self.entry.controller) {
             Family::Ssd1351 => ssd1351::contrast(&self.link, level),
@@ -292,12 +393,13 @@ impl Oled {
                 self.link.command(&[paged::CONTRAST, level])
             }
             Family::Grey => grey::contrast(&self.link, self.entry, level),
+            Family::Tft => Ok(()),
             Family::None => Err(not_driven(self.entry.controller)),
         }
     }
 }
 
-/// Display on and off are 0xAF and 0xAE on every controller driven here.
+/// Display on and off are 0xAF and 0xAE on every OLED controller driven here.
 const DISPLAY_ON: u8 = 0xAF;
 const DISPLAY_OFF: u8 = 0xAE;
 
@@ -315,6 +417,8 @@ enum Family {
     Ssd1351,
     /// 96x64 RGB; arguments as commands, unlike the SSD1351.
     Ssd1331,
+    /// The TFT LCDs on the MIPI DCS command set: ST7789, ST7735, ILI9341.
+    Tft,
     None,
 }
 
@@ -332,6 +436,7 @@ fn family(controller: Controller) -> Family {
         | Controller::Sh1122 => Family::Grey,
         Controller::Ssd1351 => Family::Ssd1351,
         Controller::Ssd1331 => Family::Ssd1331,
+        Controller::St7789 | Controller::St7735 | Controller::Ili9341 => Family::Tft,
         _ => Family::None,
     }
 }
@@ -919,6 +1024,228 @@ mod ssd1351 {
     }
 }
 
+/// The TFT LCDs on the MIPI DCS command set: ST7789, ST7735 and ILI9341.
+/// One RAM larger than most glasses, a window set by column and row
+/// address before each write, and a memory access control register that
+/// turns the picture any quarter turn and swaps the colour order.
+/// Transcribed from the controller data sheets, luma.lcd's `device.py`
+/// (MIT, Richard Hull and contributors) and Adafruit's ST7789 and ILI9341
+/// drivers (MIT); the per-glass offsets from Adafruit's.
+mod tft {
+    use super::*;
+
+    const SWRESET: u8 = 0x01;
+    const SLPOUT: u8 = 0x11;
+    const NORON: u8 = 0x13;
+    const INVOFF: u8 = 0x20;
+    const INVON: u8 = 0x21;
+    pub const DISPOFF: u8 = 0x28;
+    pub const DISPON: u8 = 0x29;
+    const CASET: u8 = 0x2A;
+    const RASET: u8 = 0x2B;
+    const RAMWR: u8 = 0x2C;
+    const MADCTL: u8 = 0x36;
+    const COLMOD: u8 = 0x3A;
+
+    /// MADCTL bits: row address order, column address order, row/column
+    /// exchange, BGR colour order.
+    const MY: u8 = 0x80;
+    const MX: u8 = 0x40;
+    const MV: u8 = 0x20;
+    const BGR: u8 = 0x08;
+
+    /// Where a glass sits in its controller's RAM, in the controller's own
+    /// orientation (MADCTL 0), and what else it needs.
+    struct Geometry {
+        ram_w: u16,
+        ram_h: u16,
+        col_off: u16,
+        row_off: u16,
+        /// The glass wires blue where the controller says red.
+        bgr: bool,
+        /// The glass shows the RAM inverted, so the controller inverts it back.
+        invert: bool,
+    }
+
+    fn geometry(entry: &Entry) -> Geometry {
+        let (ram_w, ram_h) = match entry.controller {
+            Controller::St7735 => (132, 162),
+            _ => (240, 320),
+        };
+        let (col_off, row_off, bgr, invert) = match entry.id {
+            "st7789_135x240" => (52, 40, false, true),
+            "st7789_170x320" => (35, 0, false, true),
+            "st7735_80x160" => (26, 1, true, true),
+            "st7735_128x160" => (0, 0, true, false),
+            "ili9341_240x320" => (0, 0, true, false),
+            // The 240x320 and 240x240 ST7789 glasses start at the RAM's origin.
+            _ => (0, 0, false, true),
+        };
+        Geometry {
+            ram_w,
+            ram_h,
+            col_off,
+            row_off,
+            bgr,
+            invert,
+        }
+    }
+
+    /// The MADCTL byte and the window's origin for a turn: the window's
+    /// far corners move with the glass as the addressing flips.
+    pub(super) fn placement(entry: &Entry, rotate: Rotate) -> (u8, u16, u16) {
+        let g = geometry(entry);
+        let (w, h) = (entry.width, entry.height);
+        let colour = if g.bgr { BGR } else { 0 };
+        match rotate {
+            Rotate::Normal => (colour, g.col_off, g.row_off),
+            Rotate::Half => (
+                MX | MY | colour,
+                g.ram_w - w - g.col_off,
+                g.ram_h - h - g.row_off,
+            ),
+            Rotate::Quarter => (MX | MV | colour, g.row_off, g.ram_w - w - g.col_off),
+            Rotate::ThreeQuarter => (MY | MV | colour, g.ram_h - h - g.row_off, g.col_off),
+        }
+    }
+
+    fn cmd(link: &Link, command: u8, args: &[u8]) -> io::Result<()> {
+        link.command(&[command])?;
+        if !args.is_empty() {
+            link.data(args)?;
+        }
+        Ok(())
+    }
+
+    pub fn init(link: &Link, entry: &Entry, rotate: Rotate) -> io::Result<()> {
+        let g = geometry(entry);
+        let (madctl, _, _) = placement(entry, rotate);
+        cmd(link, SWRESET, &[])?;
+        sleep(Duration::from_millis(150));
+        cmd(link, SLPOUT, &[])?;
+        sleep(Duration::from_millis(120));
+        match entry.controller {
+            Controller::St7789 => {
+                cmd(link, COLMOD, &[0x55])?; // 16 bits a pixel
+                cmd(link, 0xB2, &[0x0C, 0x0C, 0x00, 0x33, 0x33])?; // porch
+                cmd(link, 0xB7, &[0x35])?; // gate voltages
+                cmd(link, 0xBB, &[0x19])?; // VCOM 0.725 V
+                cmd(link, 0xC0, &[0x2C])?; // LCM control
+                cmd(link, 0xC2, &[0x01])?; // VDV and VRH from the registers
+                cmd(link, 0xC3, &[0x12])?; // VRH
+                cmd(link, 0xC4, &[0x20])?; // VDV
+                cmd(link, 0xC6, &[0x0F])?; // 60 Hz
+                cmd(link, 0xD0, &[0xA4, 0xA1])?; // power control 1
+                cmd(
+                    link,
+                    0xE0,
+                    &[
+                        0xD0, 0x04, 0x0D, 0x11, 0x13, 0x2B, 0x3F, 0x54, 0x4C, 0x18, 0x0D, 0x0B,
+                        0x1F, 0x23,
+                    ],
+                )?; // positive gamma
+                cmd(
+                    link,
+                    0xE1,
+                    &[
+                        0xD0, 0x04, 0x0C, 0x11, 0x13, 0x2C, 0x3F, 0x44, 0x51, 0x2F, 0x1F, 0x1F,
+                        0x20, 0x23,
+                    ],
+                )?; // negative gamma
+            }
+            Controller::St7735 => {
+                cmd(link, 0xB1, &[0x01, 0x2C, 0x2D])?; // frame rate, normal
+                cmd(link, 0xB2, &[0x01, 0x2C, 0x2D])?; // frame rate, idle
+                cmd(link, 0xB3, &[0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D])?; // frame rate, partial
+                cmd(link, 0xB4, &[0x07])?; // no display inversion control
+                cmd(link, 0xC0, &[0xA2, 0x02, 0x84])?; // power control 1
+                cmd(link, 0xC1, &[0xC5])?; // power control 2
+                cmd(link, 0xC2, &[0x0A, 0x00])?; // power control 3
+                cmd(link, 0xC3, &[0x8A, 0x2A])?; // power control 4
+                cmd(link, 0xC4, &[0x8A, 0xEE])?; // power control 5
+                cmd(link, 0xC5, &[0x0E])?; // VCOM
+                cmd(link, COLMOD, &[0x05])?; // 16 bits a pixel
+                cmd(
+                    link,
+                    0xE0,
+                    &[
+                        0x0F, 0x1A, 0x0F, 0x18, 0x2F, 0x28, 0x20, 0x22, 0x1F, 0x1B, 0x23, 0x37,
+                        0x00, 0x07, 0x02, 0x10,
+                    ],
+                )?;
+                cmd(
+                    link,
+                    0xE1,
+                    &[
+                        0x0F, 0x1B, 0x0F, 0x17, 0x33, 0x2C, 0x29, 0x2E, 0x30, 0x30, 0x39, 0x3F,
+                        0x00, 0x07, 0x03, 0x10,
+                    ],
+                )?;
+            }
+            Controller::Ili9341 => {
+                cmd(link, 0xEF, &[0x03, 0x80, 0x02])?;
+                cmd(link, 0xCF, &[0x00, 0xC1, 0x30])?; // power control B
+                cmd(link, 0xED, &[0x64, 0x03, 0x12, 0x81])?; // power on sequence
+                cmd(link, 0xE8, &[0x85, 0x00, 0x78])?; // driver timing A
+                cmd(link, 0xCB, &[0x39, 0x2C, 0x00, 0x34, 0x02])?; // power control A
+                cmd(link, 0xF7, &[0x20])?; // pump ratio
+                cmd(link, 0xEA, &[0x00, 0x00])?; // driver timing B
+                cmd(link, 0xC0, &[0x23])?; // power control 1
+                cmd(link, 0xC1, &[0x10])?; // power control 2
+                cmd(link, 0xC5, &[0x3E, 0x28])?; // VCOM 1
+                cmd(link, 0xC7, &[0x86])?; // VCOM 2
+                cmd(link, COLMOD, &[0x55])?; // 16 bits a pixel
+                cmd(link, 0xB1, &[0x00, 0x18])?; // frame rate
+                cmd(link, 0xB6, &[0x08, 0x82, 0x27])?; // display function
+                cmd(link, 0xF2, &[0x00])?; // 3-gamma off
+                cmd(link, 0x26, &[0x01])?; // gamma curve 1
+                cmd(
+                    link,
+                    0xE0,
+                    &[
+                        0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08, 0x4E, 0xF1, 0x37, 0x07, 0x10, 0x03,
+                        0x0E, 0x09, 0x00,
+                    ],
+                )?;
+                cmd(
+                    link,
+                    0xE1,
+                    &[
+                        0x00, 0x0E, 0x14, 0x03, 0x11, 0x07, 0x31, 0xC1, 0x48, 0x08, 0x0F, 0x0C,
+                        0x31, 0x36, 0x0F,
+                    ],
+                )?;
+            }
+            _ => return Err(not_driven(entry.controller)),
+        }
+        cmd(link, MADCTL, &[madctl])?;
+        cmd(link, if g.invert { INVON } else { INVOFF }, &[])?;
+        cmd(link, NORON, &[])
+    }
+
+    /// Rows `rows` of the frame into the glass's window.
+    pub fn show_rows(
+        link: &Link,
+        entry: &Entry,
+        rotate: Rotate,
+        canvas: &Canvas,
+        rows: std::ops::Range<u16>,
+    ) -> io::Result<()> {
+        debug_assert_eq!(entry.format(), Format::Rgb565);
+        let (_, x0, y0) = placement(entry, rotate);
+        let w = canvas.width();
+        let [xa, xb] = x0.to_be_bytes();
+        let [xc, xd] = (x0 + w - 1).to_be_bytes();
+        let [ya, yb] = (y0 + rows.start).to_be_bytes();
+        let [yc, yd] = (y0 + rows.end - 1).to_be_bytes();
+        cmd(link, CASET, &[xa, xb, xc, xd])?;
+        cmd(link, RASET, &[ya, yb, yc, yd])?;
+        link.command(&[RAMWR])?;
+        let row_bytes = w as usize * 2;
+        link.data(&canvas.bytes()[rows.start as usize * row_bytes..rows.end as usize * row_bytes])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1044,13 +1371,45 @@ mod tests {
     }
 
     #[test]
+    fn a_tft_glass_keeps_its_place_in_the_ram_through_every_turn() {
+        use tft::placement;
+        // The 2.0" fills its RAM: every turn starts at the origin, the
+        // sides swap on the quarter turns.
+        let e = catalog::find("st7789_240x320").unwrap();
+        assert_eq!(placement(e, Rotate::Normal), (0x00, 0, 0));
+        assert_eq!(placement(e, Rotate::Half), (0xC0, 0, 0));
+        assert_eq!(placement(e, Rotate::Quarter), (0x60, 0, 0));
+        assert_eq!(placement(e, Rotate::ThreeQuarter), (0xA0, 0, 0));
+        // The square 1.3" sits in the first 240 rows, so upside down it
+        // starts 80 rows in.
+        let e = catalog::find("st7789_240x240").unwrap();
+        assert_eq!(placement(e, Rotate::Normal), (0x00, 0, 0));
+        assert_eq!(placement(e, Rotate::Half), (0xC0, 0, 80));
+        assert_eq!(placement(e, Rotate::Quarter), (0x60, 0, 0));
+        assert_eq!(placement(e, Rotate::ThreeQuarter), (0xA0, 80, 0));
+        // The 1.14" is 52 columns and 40 rows in; its far corners follow.
+        let e = catalog::find("st7789_135x240").unwrap();
+        assert_eq!(placement(e, Rotate::Normal), (0x00, 52, 40));
+        assert_eq!(placement(e, Rotate::Half), (0xC0, 53, 40));
+        assert_eq!(placement(e, Rotate::Quarter), (0x60, 40, 53));
+        assert_eq!(placement(e, Rotate::ThreeQuarter), (0xA0, 40, 52));
+        // The BGR glasses carry the colour bit.
+        let e = catalog::find("ili9341_240x320").unwrap();
+        assert_eq!(placement(e, Rotate::Normal).0, 0x08);
+        assert!(e.controller.is_tft() && e.format() == Format::Rgb565);
+        assert_eq!(spi_settings(Controller::St7789).1, 40_000_000);
+        assert_eq!(spi_settings(Controller::St7735).1, 15_000_000);
+    }
+
+    #[test]
     fn the_wiring_knows_its_bus() {
         assert_eq!(
             Wiring::Spi {
                 bus: 0,
                 cs: 0,
                 dc: 25,
-                reset: Some(27)
+                reset: Some(27),
+                backlight: None,
             }
             .bus(),
             Bus::Spi

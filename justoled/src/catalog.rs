@@ -28,6 +28,12 @@ pub enum Controller {
     Sh1107,
     Sh1122,
     Ch1120,
+    /// Sitronix TFT LCD controllers, 240x320 RAM, RGB565 over four-wire SPI.
+    St7789,
+    /// Sitronix TFT LCD controller, 132x162 RAM.
+    St7735,
+    /// ILI9341 TFT LCD controller, 240x320 RAM.
+    Ili9341,
 }
 
 impl Controller {
@@ -48,6 +54,9 @@ impl Controller {
             Controller::Sh1107 => "SH1107",
             Controller::Sh1122 => "SH1122",
             Controller::Ch1120 => "CH1120",
+            Controller::St7789 => "ST7789",
+            Controller::St7735 => "ST7735",
+            Controller::Ili9341 => "ILI9341",
         }
     }
 
@@ -66,8 +75,22 @@ impl Controller {
             | Controller::Ssd1327
             | Controller::Ssd1362
             | Controller::Sh1122 => Format::Grey4,
-            Controller::Ssd1331 | Controller::Ssd1351 | Controller::Ssd1357 => Format::Rgb565,
+            Controller::Ssd1331
+            | Controller::Ssd1351
+            | Controller::Ssd1357
+            | Controller::St7789
+            | Controller::St7735
+            | Controller::Ili9341 => Format::Rgb565,
         }
+    }
+
+    /// Whether the controller is a TFT LCD rather than an OLED: it has a
+    /// backlight, and turns the picture a quarter turn itself.
+    pub fn is_tft(self) -> bool {
+        matches!(
+            self,
+            Controller::St7789 | Controller::St7735 | Controller::Ili9341
+        )
     }
 }
 
@@ -428,6 +451,79 @@ pub const ENTRIES: &[Entry] = &[
         i2c_addresses: NONE,
         verified: Verified::Described,
         note: "Waveshare 0.96inch RGB OLED Module. A 64-column window of the 128x128 RAM.",
+    },
+    // The TFT LCDs: a backlight pin besides the OLED's seven wires, and a
+    // quarter turn the controller makes itself. Sizes are the glass in its
+    // own portrait; the Orientation setting turns it.
+    Entry {
+        id: "st7789_240x320",
+        controller: Controller::St7789,
+        width: 240,
+        height: 320,
+        buses: SPI,
+        i2c_addresses: NONE,
+        verified: Verified::Bench,
+        note: "2.0\" IPS modules: Waveshare 2inch LCD Module (ST7789V, seen on the bench at every turn), Adafruit 4311, Pimoroni Display HAT Mini (CE1, DC 9, backlight 13). The whole 240x320 RAM.",
+    },
+    Entry {
+        id: "st7789_240x240",
+        controller: Controller::St7789,
+        width: 240,
+        height: 240,
+        buses: SPI,
+        i2c_addresses: NONE,
+        verified: Verified::Described,
+        note: "1.3\" and 1.54\" square IPS modules: Waveshare 1.3inch LCD Module, Pimoroni Pirate Audio HATs (CE1, DC 9, backlight 13), Adafruit 4313 and 3787. The first 240 rows of the RAM.",
+    },
+    Entry {
+        id: "st7789_135x240",
+        controller: Controller::St7789,
+        width: 135,
+        height: 240,
+        buses: SPI,
+        i2c_addresses: NONE,
+        verified: Verified::Described,
+        note: "1.14\" IPS modules: Waveshare 1.14inch LCD Module, Adafruit 4383. Columns 52 to 186 and rows 40 to 279 of the RAM.",
+    },
+    Entry {
+        id: "st7789_170x320",
+        controller: Controller::St7789,
+        width: 170,
+        height: 320,
+        buses: SPI,
+        i2c_addresses: NONE,
+        verified: Verified::Described,
+        note: "1.9\" IPS modules: Waveshare 1.9inch LCD Module, Adafruit 5394. Columns 35 to 204 of the RAM.",
+    },
+    Entry {
+        id: "st7735_128x160",
+        controller: Controller::St7735,
+        width: 128,
+        height: 160,
+        buses: SPI,
+        i2c_addresses: NONE,
+        verified: Verified::Described,
+        note: "1.8\" TFT modules: Waveshare 1.8inch LCD Module, Adafruit 358, the common red-tab boards. Colour order differs between boards; a swapped red and blue means the other order.",
+    },
+    Entry {
+        id: "st7735_80x160",
+        controller: Controller::St7735,
+        width: 80,
+        height: 160,
+        buses: SPI,
+        i2c_addresses: NONE,
+        verified: Verified::Described,
+        note: "0.96\" IPS modules: Waveshare 0.96inch LCD Module, Adafruit 3533. Columns 26 to 105 of the RAM, picture inverted as these glasses need.",
+    },
+    Entry {
+        id: "ili9341_240x320",
+        controller: Controller::Ili9341,
+        width: 240,
+        height: 320,
+        buses: SPI,
+        i2c_addresses: NONE,
+        verified: Verified::Described,
+        note: "2.2\" to 3.2\" TFT modules: Waveshare 2.4inch LCD Module, Adafruit 1770 and 1743, the common 2.8\" boards with a touch panel. The whole 240x320 RAM.",
     },
 ];
 

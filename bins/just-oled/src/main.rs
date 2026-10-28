@@ -189,17 +189,19 @@ fn show_test(config: &str, hold: u64) -> Result<(), String> {
     let s = load_settings(config)?;
     let mut oled =
         Oled::open(s.entry, &s.wiring).map_err(|e| format!("open {}: {e}", s.entry.id))?;
+    let in_software = oled.orient(s.rotate);
     oled.init()
         .map_err(|e| format!("init {}: {e}", s.entry.id))?;
-    let mut canvas = oled.canvas().with_rotate(s.rotate);
+    let mut canvas = oled.canvas().with_rotate(in_software);
     pattern::draw(&mut canvas);
     let started = std::time::Instant::now();
     oled.show(&canvas).map_err(|e| format!("show: {e}"))?;
     println!(
-        "just-oled: test picture on {} ({}x{}) via {:?}, frame sent in {:.1} ms",
+        "just-oled: test picture on {} ({}x{}, {:?}) via {:?}, frame sent in {:.1} ms",
         s.entry.id,
-        s.entry.width,
-        s.entry.height,
+        canvas.width(),
+        canvas.height(),
+        s.rotate,
         s.wiring,
         started.elapsed().as_secs_f64() * 1000.0
     );

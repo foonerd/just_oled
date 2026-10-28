@@ -72,9 +72,12 @@ impl Settings {
         let entry = catalog::find(&panel)
             .ok_or_else(|| Error::Field("panel", format!("{panel} is not in the catalogue")))?;
         let connection = store.string("connection").unwrap_or_else(|| "i2c".into());
+        // A pin, or none: missing, or -1 as the presets write for a line a
+        // board does not bring out.
         let pin = |key: &'static str| -> Result<Option<u32>, Error> {
             match store.number(key) {
                 None => Ok(None),
+                Some(n) if n < 0.0 => Ok(None),
                 Some(n) if (0.0..=27.0).contains(&n) && n.fract() == 0.0 => Ok(Some(n as u32)),
                 Some(n) => Err(Error::Field(key, format!("{n} is not a GPIO number"))),
             }
@@ -92,6 +95,7 @@ impl Settings {
                 cs: small("spi_cs", 0)?,
                 dc: pin("gpio_dc")?.ok_or_else(|| Error::Field("gpio_dc", "missing".into()))?,
                 reset: pin("gpio_reset")?,
+                backlight: pin("gpio_bl")?,
             }
         } else {
             let addr = match store.string("i2c_address").as_deref() {
@@ -193,9 +197,23 @@ impl Settings {
         })
     }
 
-    /// Whether `other` needs the panel opened anew: another panel or another wiring.
+    /// Whether `other` needs the panel opened anew: another panel or
+    /// another wiring, or another turn on a TFT, whose controller is told
+    /// the turn at its start.
     pub fn needs_reopen(&self, other: &Settings) -> bool {
-        !std::ptr::eq(self.entry, other.entry) || self.wiring != other.wiring
+        !std::ptr::eq(self.entry, other.entry)
+            || self.wiring != other.wiring
+            || (self.entry.controller.is_tft() && self.rotate != other.rotate)
+    }
+
+    /// The frame's size as the pages see it: a TFT's sides swap on a
+    /// quarter turn, an OLED keeps its own.
+    pub fn size(&self) -> (u16, u16) {
+        if self.entry.controller.is_tft() && self.rotate.swaps_sides() {
+            (self.entry.height, self.entry.width)
+        } else {
+            (self.entry.width, self.entry.height)
+        }
     }
 }
 
@@ -251,7 +269,8 @@ mod tests {
                 bus: 0,
                 cs: 0,
                 dc: 25,
-                reset: Some(27)
+                reset: Some(27),
+                backlight: None,
             }
         );
         assert_eq!(s.rotate, Rotate::Half);

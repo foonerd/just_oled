@@ -85,9 +85,10 @@ impl Panel {
     fn open(settings: &Settings) -> Result<Panel, String> {
         let mut oled = Oled::open(settings.entry, &settings.wiring)
             .map_err(|e| format!("{}: {e}", settings.entry.id))?;
+        let in_software = oled.orient(settings.rotate);
         oled.init()
             .map_err(|e| format!("{} init: {e}", settings.entry.id))?;
-        let canvas = oled.canvas().with_rotate(settings.rotate);
+        let canvas = oled.canvas().with_rotate(in_software);
         Ok(Panel {
             oled,
             sent: Vec::new(),
@@ -100,13 +101,16 @@ impl Panel {
         })
     }
 
-    /// Send the canvas if it differs from what the panel shows.
+    /// Send the canvas if it differs from what the panel shows: the rows
+    /// that changed where the controller takes a window, the whole frame
+    /// otherwise.
     fn flush(&mut self) -> std::io::Result<()> {
         if self.sent.as_slice() == self.canvas.bytes() {
             return Ok(());
         }
         let started = Instant::now();
-        self.oled.show(&self.canvas)?;
+        let rows = self.changed_rows();
+        self.oled.show_rows(&self.canvas, rows)?;
         self.frame_ms = started.elapsed().as_secs_f32() * 1000.0;
         self.sent.clear();
         self.sent.extend_from_slice(self.canvas.bytes());
@@ -131,6 +135,23 @@ impl Panel {
         }
         self.on = on;
         Ok(())
+    }
+
+    /// The first row through the last that differ from the frame sent; the
+    /// whole frame when none was sent or the format is not row by row.
+    fn changed_rows(&self) -> std::ops::Range<u16> {
+        let h = self.canvas.height();
+        let row_bytes = self.canvas.bytes().len() / h.max(1) as usize;
+        if !self.oled.windowed() || self.sent.len() != self.canvas.bytes().len() || row_bytes == 0 {
+            return 0..h;
+        }
+        let differs = |y: usize| {
+            let span = y * row_bytes..(y + 1) * row_bytes;
+            self.sent[span.clone()] != self.canvas.bytes()[span]
+        };
+        let first = (0..h as usize).find(|&y| differs(y)).unwrap_or(0);
+        let last = (0..h as usize).rev().find(|&y| differs(y)).unwrap_or(0);
+        first as u16..last as u16 + 1
     }
 }
 
@@ -170,7 +191,8 @@ fn bars_for(settings: Option<&Settings>) -> Bars {
     let Some(s) = settings else {
         return Bars::new(32);
     };
-    Bars::new(pages::bar_count(s.entry.width, s.entry.height, &s.look)).with_gain_db(s.look.gain_db)
+    let (w, h) = s.size();
+    Bars::new(pages::bar_count(w, h, &s.look)).with_gain_db(s.look.gain_db)
 }
 
 impl Daemon {
@@ -242,9 +264,10 @@ impl Daemon {
         };
         match Panel::open(settings) {
             Ok(p) => {
+                let (w, h) = settings.size();
                 log(&format!(
-                    "display: {} ({}x{}) via {:?}",
-                    settings.entry.id, settings.entry.width, settings.entry.height, settings.wiring
+                    "display: {} ({w}x{h}, {:?}) via {:?}",
+                    settings.entry.id, settings.rotate, settings.wiring
                 ));
                 self.panel = Some(p);
                 self.panel_error = None;
@@ -418,7 +441,7 @@ impl Daemon {
         }
         if rotate_changed {
             if let (Some(p), Some(s)) = (self.panel.as_mut(), self.settings.as_ref()) {
-                p.canvas = p.oled.canvas().with_rotate(s.rotate);
+                p.canvas = p.oled.canvas().with_rotate(s.rotate.in_software());
                 p.sent.clear();
             }
         }
@@ -599,6 +622,7 @@ pub fn ring_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use justoled::canvas::Rotate;
     use justoled::catalog;
     use justoled::oled::Wiring;
 
@@ -725,5 +749,33 @@ mod tests {
             show_lifecycle: false,
             ..settings()
         }));
+        // An OLED turns in the canvas: no reopen, the size stays. A TFT
+        // turns in its controller: reopened, the sides swap.
+        let turned = Settings {
+            rotate: Rotate::Quarter,
+            ..settings()
+        };
+        assert!(!settings().needs_reopen(&turned));
+        assert_eq!(turned.size(), (128, 64));
+        let tft = |rotate: Rotate| Settings {
+            entry: catalog::find("st7789_240x320").unwrap(),
+            wiring: Wiring::Spi {
+                bus: 0,
+                cs: 0,
+                dc: 25,
+                reset: Some(27),
+                backlight: Some(18),
+            },
+            rotate,
+            ..settings()
+        };
+        assert!(tft(Rotate::Normal).needs_reopen(&tft(Rotate::Quarter)));
+        assert!(!tft(Rotate::Half).needs_reopen(&tft(Rotate::Half)));
+        assert_eq!(tft(Rotate::Normal).size(), (240, 320));
+        assert_eq!(tft(Rotate::Quarter).size(), (320, 240));
+        assert!(
+            bars_for(Some(&tft(Rotate::Quarter))).count()
+                > bars_for(Some(&tft(Rotate::Normal))).count()
+        );
     }
 }
