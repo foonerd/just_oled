@@ -4,6 +4,13 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-28
+
+- The SPI TFT LCDs join the catalogue: ST7789 at 240x320 (the Waveshare 2", Adafruit's 2.0", Pimoroni's Display HAT Mini), 240x240 (the 1.3" squares, Pirate Audio), 135x240 (1.14") and 170x320 (1.9"); ST7735 at 128x160 and 80x160; ILI9341 at 240x320. RGB565 like the SSD1351, at 40 MHz (15 MHz for the ST7735); a 240x320 frame goes in 36 ms. Each glass sits where its data sheet puts it in the controller's RAM, with the colour order and inversion the module needs. The daemon sends the rows that changed between two frames rather than the whole frame, so the meter moves at its 25 fps on the large glasses too.
+- A backlight pin for the TFTs: *Backlight GPIO* in the Connection section (18 in the generic and Waveshare wiring, where Waveshare's demos put it). The daemon drives it with the display: lit after the start-up sequence, dark in standby. -1 for a module whose backlight is tied to 3.3 V, and -1 for *Reset GPIO* on a module without one.
+- *Orientation* takes quarter turns, 90 and 270, for the TFTs, which turn in the controller: a portrait module shows the landscape pages. An OLED turns half way as before; a quarter turn there shows as normal.
+- An *SPI, Pimoroni HAT wiring* preset: CE1, DC on GPIO 9, backlight on GPIO 13, no reset line, as the Pirate Audio and the Display HAT Mini are wired.
+- `--probe` names the backlight pin on a TFT; `--test` prints the frame's size after the turn.
 ## [0.1.6] - 2026-10-26
 
 - The plugin's author is Just a Nerd in the store listing, as in the other plugins; the GitHub login stood there before.
