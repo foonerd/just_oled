@@ -166,7 +166,7 @@ console.log((files.length - 1) + ' language files complete');
 JS
 
 echo "check: plugin"
-with_node --check plugin/index.js plugin/lib/boot.js
+with_node --check plugin/index.js plugin/lib/boot.js plugin/scripts/resync.js
 with_node --test plugin/test/
 
 echo "check: clean"

@@ -134,7 +134,8 @@ systemctl enable "$SERVICE.service" >/dev/null 2>&1 || true
 # An update of a plugin that is on: Volumio stops the old instance before
 # the files change and does not start the new one until it restarts, so
 # the display would stay dark until then. The service is started here in
-# that case; a fresh install leaves the start to the plugin's enable.
+# that case, and handed the player's state, as the stopped plugin cannot;
+# a fresh install leaves the start to the plugin's enable.
 if command -v node >/dev/null 2>&1 && node -e '
   var c = require("/data/configuration/plugins.json");
   var p = ((c.system_hardware || {}).just_oled || {}).enabled;
@@ -142,6 +143,7 @@ if command -v node >/dev/null 2>&1 && node -e '
 ' >/dev/null 2>&1; then
   systemctl start "$SERVICE.service" >/dev/null 2>&1 || true
   echo "Display service started (the plugin was on)"
+  NODE_PATH=/volumio/node_modules node "$PLUGIN_DIR/scripts/resync.js" 2>&1 || true
 fi
 
 chown -R volumio:volumio "$PLUGIN_DIR"
