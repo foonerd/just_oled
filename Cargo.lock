@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "just-oled"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "justoled",
  "libc",
@@ -12,14 +12,14 @@ dependencies = [
 
 [[package]]
 name = "justoled"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "justoled-tap"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "justoled",
  "libc",

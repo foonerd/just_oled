@@ -4,6 +4,12 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-28
+
+- The large panels set their pages in larger type. A panel of 200 rows and more (the 320x240 and 240x240 TFTs; not the 1.14" in portrait) steps every role up one face, 16/24/32 px in place of 12/16/24, so the type keeps the size it has on the OLEDs, whose pixels are coarser, and the rows take the room; the volume and connection icons and the level bars double with it, the progress line is three pixels. The OLED classes draw exactly as before, every picture of theirs byte for byte.
+- A standby clock in 64-pixel digits wherever they fit the width, in place of a doubled 24-pixel face; a 12-hour clock's am/pm sits beside the digits on their baseline in the medium face. The 128-pixel-wide panels keep their way, since the digits do not fit there.
+- Two faces join the binary: `evo_32` (the same Noto Sans build and glyph set as the others, 43 KB of bitmaps) and `evo_64` (the digits, colon, dot, dash and slash, 2 KB).
+- `--render` draws the `320x240-rgb` class; the wiki's Screens page has its sheets.
 ## [0.1.9] - 2026-10-28
 
 - A daemon started on its own gets the player's state. The plugin asks the daemon who it is every fifteen seconds (`--ping` now answers with the process id); a daemon it has not seen before, after an update, a crash or a hand restart, is given the player's state fetched from Volumio at that moment, so the position is current, rather than the boot rows and then the clock until the player's next change. The plugin also asks for the state whenever its own link to Volumio connects again.
