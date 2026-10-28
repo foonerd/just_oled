@@ -4,6 +4,9 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-28
+
+- A daemon started on its own gets the player's state. The plugin asks the daemon who it is every fifteen seconds (`--ping` now answers with the process id); a daemon it has not seen before, after an update, a crash or a hand restart, is given the player's state fetched from Volumio at that moment, so the position is current, rather than the boot rows and then the clock until the player's next change. The plugin also asks for the state whenever its own link to Volumio connects again.
 ## [0.1.8] - 2026-10-28
 
 - After a plugin update the display comes back on its own. Volumio stops a plugin before replacing its files and does not start the new code until the player restarts; the installer now starts the display service itself when the plugin was on, so the panel is dark only for the seconds the update takes. A fresh install is unchanged: the service starts when the plugin is enabled.

@@ -4,7 +4,7 @@ Spectrum, VU bars, the track and a clock on a small OLED or TFT LCD, moving with
 
 The face is the user's: the spectrum, the stereo spectrum, the spectrum with left and right levels, the levels alone, the track alone in larger type, or the spectrum across the whole panel; the track's time played, remaining or none; the sample rate and bit depth; peak marks; a meter gain for quiet and loud recordings. Standby shows the time and date in the formats the user picks, with the player's address, and goes dark after a chosen while. Every page lays itself out for the panel it is on, from a 128x32 strip to a 256x64 grey, a 128x128 colour module or a 320x240 TFT.
 
-The workspace version is **0.1.8**: the tap, the drivers for the one-bit, grey and colour OLED controllers and the TFT LCDs, the pages and the plugin are in; two modules (the Waveshare 1.5" RGB, SSD1351, and a 2.42" SSD1309) have been seen working, the Waveshare 2" ST7789 is on the bench, the rest are driven from the data sheets and wait for one. The [wiki](https://github.com/foonerd/just_oled/wiki) says what is verified on a module and what is described from the data sheet.
+The workspace version is **0.1.9**: the tap, the drivers for the one-bit, grey and colour OLED controllers and the TFT LCDs, the pages and the plugin are in; two modules (the Waveshare 1.5" RGB, SSD1351, and a 2.42" SSD1309) have been seen working, the Waveshare 2" ST7789 is on the bench, the rest are driven from the data sheets and wait for one. The [wiki](https://github.com/foonerd/just_oled/wiki) says what is verified on a module and what is described from the data sheet.
 
 ## Get it
 
