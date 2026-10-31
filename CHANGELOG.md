@@ -4,6 +4,9 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-31
+
+- On an I2C module at the Pi's 100 kHz, a setting saved or a track changed while music played showed only at the next stop or pause. A 128x64 frame takes some 95 ms on that bus, more than the 40 ms frame, and the loop took the plugin's commands only in the time a frame left over, which on a moving picture was none; a frame that did not change (the standby page) was quick and let them through. The queue is now drained once a frame before the wait, whatever the bus takes. SPI modules and I2C at 400 kHz were unaffected, their frames being shorter than the frame period. Reported by Haslam on a Hailege 2.42" SSD1309 over I2C.
 ## [0.2.0] - 2026-10-28
 
 - The large panels set their pages in larger type. A panel of 200 rows and more (the 320x240 and 240x240 TFTs; not the 1.14" in portrait) steps every role up one face, 16/24/32 px in place of 12/16/24, so the type keeps the size it has on the OLEDs, whose pixels are coarser, and the rows take the room; the volume and connection icons and the level bars double with it, the progress line is three pixels. The OLED classes draw exactly as before, every picture of theirs byte for byte.
