@@ -4,6 +4,8 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+- `ssd1331_96x64` verified on a 0.95" module over SPI: the test picture to all four edges, the colours in order, the ramp smooth; 25 fps at 12.8 ms a frame.
+
 ## [0.2.2] - 2026-10-31
 
 - The ILI9341 draws the right way round. Its glass scans columns the other way from the ST7789's, so every turn carries the MADCTL MX bit the other way (Adafruit's 0x48, 0x28, 0x88, 0xE8); the first picture on a 2.8" board was a mirror image. `ili9341_240x320` verified on a bare 2.8" board over SPI at 40 MHz: 25 fps at 14 ms a frame on the playing page, the test picture to all four edges, the colours in order.

@@ -419,8 +419,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 64,
         buses: SPI,
         i2c_addresses: NONE,
-        verified: Verified::Described,
-        note: "0.95\" and 0.96\" colour modules: Waveshare 0.95inch RGB OLED (A)/(B), Adafruit 684.",
+        verified: Verified::Bench,
+        note: "0.95\" and 0.96\" colour modules: Waveshare 0.95inch RGB OLED (A)/(B), Adafruit 684. Verified on a generic 0.95\" module over SPI.",
     },
     Entry {
         id: "ssd1351_128x128",
