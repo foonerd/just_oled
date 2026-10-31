@@ -10,7 +10,7 @@
 //! off and left alone.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -586,18 +586,35 @@ impl Daemon {
             }
             self.draw(now);
             self.publish_report();
-            // Commands arriving during the frame's rest are taken as they come.
-            let deadline = now + frame;
-            loop {
-                let left = deadline.saturating_duration_since(Instant::now());
-                if left.is_zero() {
-                    break;
-                }
-                match rx.recv_timeout(left) {
-                    Ok(cmd) => self.apply(cmd, Instant::now()),
-                    Err(RecvTimeoutError::Timeout) => break,
-                    Err(RecvTimeoutError::Disconnected) => return,
-                }
+            if !self.take_commands(&rx, now + frame) {
+                return;
+            }
+        }
+    }
+
+    /// Apply what the plugin sent: everything already queued, then what
+    /// arrives until `deadline`. The queue is drained first so a bus that
+    /// takes longer than a frame to write (I2C at 100 kHz: some 95 ms for
+    /// a 128x64 frame against the 40 ms frame) still has its commands
+    /// applied once a frame, rather than only when a frame is unchanged
+    /// and quick. Returns `false` when the sender is gone.
+    fn take_commands(&mut self, rx: &Receiver<Command>, deadline: Instant) -> bool {
+        loop {
+            match rx.try_recv() {
+                Ok(cmd) => self.apply(cmd, Instant::now()),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => return false,
+            }
+        }
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return true;
+            }
+            match rx.recv_timeout(left) {
+                Ok(cmd) => self.apply(cmd, Instant::now()),
+                Err(RecvTimeoutError::Timeout) => return true,
+                Err(RecvTimeoutError::Disconnected) => return false,
             }
         }
     }
@@ -718,6 +735,41 @@ mod tests {
         assert_eq!((r.phase.as_str(), r.status.as_str()), ("farewell", "play"));
         assert!(r.panel.is_none() && r.panel_error.is_some());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commands_are_taken_even_when_the_frame_left_no_time() {
+        // A bus slower than the frame: the deadline is past before the
+        // queue is looked at. Everything queued must still be applied.
+        let mut d = Daemon::new(Some(settings()), PathBuf::from("/nonexistent"), ring_dir());
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(Command::State(Box::new(Track {
+            status: Status::Play,
+            title: "Harvest Moon".into(),
+            ..Default::default()
+        })))
+        .unwrap();
+        tx.send(Command::Message {
+            lines: vec!["hi".into()],
+            hold: Duration::from_secs(1),
+        })
+        .unwrap();
+        let past = Instant::now() - Duration::from_millis(100);
+        assert!(d.take_commands(&rx, past));
+        assert_eq!(d.track.title, "Harvest Moon");
+        assert!(matches!(d.phase, Phase::Message { .. }));
+        // With time left, a command arriving during the wait is taken too.
+        let later = Instant::now() + Duration::from_millis(200);
+        let tx2 = tx.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            tx2.send(Command::Farewell(Farewell::Shutdown)).unwrap();
+        });
+        assert!(d.take_commands(&rx, later));
+        assert_eq!(d.phase, Phase::Farewell);
+        // A sender that is gone ends the loop.
+        drop(tx);
+        assert!(!d.take_commands(&rx, Instant::now()));
     }
 
     #[test]
