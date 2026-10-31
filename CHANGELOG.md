@@ -4,6 +4,10 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-31
+
+- The ILI9341 draws the right way round. Its glass scans columns the other way from the ST7789's, so every turn carries the MADCTL MX bit the other way (Adafruit's 0x48, 0x28, 0x88, 0xE8); the first picture on a 2.8" board was a mirror image. `ili9341_240x320` verified on a bare 2.8" board over SPI at 40 MHz: 25 fps at 14 ms a frame on the playing page, the test picture to all four edges, the colours in order.
+- A TFT's backlight pin is of two kinds, and the settings page and the wiki now say so: a logic input (Waveshare's BL, Pimoroni's and Adafruit's) goes to a GPIO and the daemon drives it; a pin that is the backlight itself (BLK or LED on the bare 2.8" ILI9341 boards and many ST7735 modules) goes to 3.3 V, never to a GPIO, and a backlight that blinks with every update is that pin on a GPIO or floating. The Wiring page has the 8-pin board's own drawing: no CS pin, MISO unconnected, BLK on pin 17.
 - `ssd1306_128x32` verified on a 0.91" module over I2C at 0x3C, at the Pi's 100 kHz: 21 fps at 47 ms a frame, a setting saved and a track skipped while music played both shown at once.
 - `ssd1306_128x64` verified on a 0.96" module over I2C at 0x3C: 10.5 fps at 93 ms a frame at 100 kHz, a setting saved and a track skipped while music played both shown at once; 22 fps at 23 ms a frame at 400 kHz.
 - `sh1106_128x64` verified on a 1.3" module over I2C at 0x3C at 400 kHz: the test picture to all four edges (the two-column offset right), 25 fps at 25 ms a frame.
