@@ -37,7 +37,7 @@
         "GPIO_RESET": "リセットの GPIO",
         "GPIO_RESET_DOC": "モジュールの RST（RES）ピンに配線した GPIO の BCM 番号です。汎用配線では 25、Waveshare 配線では 27。モジュールにリセットピンがない場合は -1。",
         "GPIO_BL": "バックライトの GPIO",
-        "GPIO_BL_DOC": "TFT 液晶の BL（LED）ピンに配線した GPIO の BCM 番号です。Waveshare のモジュールでは 18、Pimoroni の HAT では 13。バックライトを 3.3 V に直結している場合は -1。OLED にはありません。",
+        "GPIO_BL_DOC": "TFT 液晶のバックライトピンがロジック入力の場合に、そこに配線した GPIO の BCM 番号です。Waveshare のモジュールでは 18、Pimoroni の HAT では 13。BLK や LED ピンがバックライトそのものである裸基板（2.8 インチの ILI9341 基板、多くの ST7735 モジュール）では、そのピンは GPIO ではなく 3.3 V につなぎ、-1 を設定します。OLED にはありません。",
         "ROTATE": "向き",
         "ROTATE_DOC": "モジュールの取り付け向きに合わせて画面を回転します。OLED は 180 度のみ、TFT 液晶は 90 度単位でも回転できるので、縦向きに取り付けたモジュールでも横向きのレイアウトを表示できます。",
         "ROTATE_0": "通常",

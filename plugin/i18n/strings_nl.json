@@ -37,7 +37,7 @@
         "GPIO_RESET": "Reset-GPIO",
         "GPIO_RESET_DOC": "BCM-nummer van de GPIO aan de RST-pin (RES) van de module. 25 in de generieke bedrading, 27 bij Waveshare; -1 als de module geen resetpin heeft.",
         "GPIO_BL": "Achtergrondverlichting-GPIO",
-        "GPIO_BL_DOC": "BCM-nummer van de GPIO aan de BL-pin (LED) van een TFT-lcd: 18 bij Waveshare-modules, 13 bij Pimoroni-HAT's; -1 als de achtergrondverlichting rechtstreeks op 3,3 V zit. OLED's hebben er geen.",
+        "GPIO_BL_DOC": "BCM-nummer van de GPIO aan de achtergrondverlichtingspin van een TFT-lcd, als die pin een logische ingang is: 18 bij Waveshare-modules, 13 bij Pimoroni-HAT's. Bij een kale print waarvan de BLK- of LED-pin de achtergrondverlichting zelf is (de 2,8-inch ILI9341-printen, veel ST7735-modules) gaat de pin naar 3,3 V, niet naar een GPIO; vul -1 in. OLED's hebben er geen.",
         "ROTATE": "Oriëntatie",
         "ROTATE_DOC": "Draait het beeld naar de stand waarin de module is gemonteerd. Een OLED draait een halve slag; een TFT-lcd ook een kwartslag, zodat een staand gemonteerde module de liggende indeling toont.",
         "ROTATE_0": "Normaal",

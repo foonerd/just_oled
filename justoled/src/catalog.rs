@@ -522,8 +522,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 320,
         buses: SPI,
         i2c_addresses: NONE,
-        verified: Verified::Described,
-        note: "2.2\" to 3.2\" TFT modules: Waveshare 2.4inch LCD Module, Adafruit 1770 and 1743, the common 2.8\" boards with a touch panel. The whole 240x320 RAM.",
+        verified: Verified::Bench,
+        note: "2.2\" to 3.2\" TFT modules: Waveshare 2.4inch LCD Module, Adafruit 1770 and 1743, the common 2.8\" boards with a touch panel. The whole 240x320 RAM, scanned the other way round from the ST7789. Verified on a bare 2.8\" board (GND VCC CLK MOSI RES DC BLK MISO, no CS; BLK to 3.3 V).",
     },
 ];
 

@@ -37,7 +37,7 @@
         "GPIO_RESET": "Reset GPIO",
         "GPIO_RESET_DOC": "BCM number of the GPIO wired to the module's RST (RES) pin. 25 in the generic wiring, 27 in Waveshare's; -1 when the module has no reset pin.",
         "GPIO_BL": "Backlight GPIO",
-        "GPIO_BL_DOC": "BCM number of the GPIO wired to a TFT LCD's BL (LED) pin: 18 on Waveshare's modules, 13 on Pimoroni's HATs; -1 when the backlight is wired straight to 3.3 V. OLEDs have none.",
+        "GPIO_BL_DOC": "BCM number of the GPIO wired to a TFT LCD's backlight pin, where that pin is a logic input: 18 on Waveshare's modules, 13 on Pimoroni's HATs. On a bare board whose BLK or LED pin is the backlight itself (the 2.8 inch ILI9341 boards, many ST7735 modules) the pin goes to 3.3 V, not to a GPIO; set -1. OLEDs have none.",
         "ROTATE": "Orientation",
         "ROTATE_DOC": "Turn the picture to match how the module is mounted. An OLED turns half way; a TFT LCD turns by quarters too, so a portrait module shows the landscape layout.",
         "ROTATE_0": "Normal",

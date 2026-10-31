@@ -37,7 +37,7 @@
         "GPIO_RESET": "Reset-GPIO",
         "GPIO_RESET_DOC": "BCM-Nummer des GPIO am RST-Pin (RES) des Moduls. 25 in der generischen Verdrahtung, 27 bei Waveshare; -1, wenn das Modul keinen Reset-Pin hat.",
         "GPIO_BL": "Hintergrundbeleuchtungs-GPIO",
-        "GPIO_BL_DOC": "BCM-Nummer des GPIO am BL-Pin (LED) eines TFT-LCDs: 18 bei Waveshare-Modulen, 13 bei Pimoroni-HATs; -1, wenn die Hintergrundbeleuchtung direkt an 3,3 V hängt. OLEDs haben keine.",
+        "GPIO_BL_DOC": "BCM-Nummer des GPIO am Hintergrundbeleuchtungs-Pin eines TFT-LCDs, sofern dieser Pin ein Logikeingang ist: 18 bei Waveshare-Modulen, 13 bei Pimoroni-HATs. Bei einer nackten Platine, deren BLK- oder LED-Pin die Hintergrundbeleuchtung selbst ist (die 2,8-Zoll-ILI9341-Platinen, viele ST7735-Module), gehört der Pin an 3,3 V, nicht an einen GPIO; dann -1 eintragen. OLEDs haben keine.",
         "ROTATE": "Ausrichtung",
         "ROTATE_DOC": "Dreht das Bild passend zur Einbaulage des Moduls. Ein OLED dreht um eine halbe Drehung; ein TFT-LCD auch um Vierteldrehungen, sodass ein hochkant eingebautes Modul das Querformat zeigt.",
         "ROTATE_0": "Normal",

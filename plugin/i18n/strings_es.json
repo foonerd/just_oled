@@ -37,7 +37,7 @@
         "GPIO_RESET": "GPIO de reinicio",
         "GPIO_RESET_DOC": "Número BCM del GPIO conectado al pin RST (RES) del módulo. 25 en el cableado genérico, 27 en el de Waveshare; -1 si el módulo no tiene pin de reinicio.",
         "GPIO_BL": "GPIO de la retroiluminación",
-        "GPIO_BL_DOC": "Número BCM del GPIO conectado al pin BL (LED) de un LCD TFT: 18 en los módulos Waveshare, 13 en los HAT Pimoroni; -1 si la retroiluminación va directa a 3,3 V. Los OLED no la tienen.",
+        "GPIO_BL_DOC": "Número BCM del GPIO conectado al pin de retroiluminación de un LCD TFT, cuando ese pin es una entrada lógica: 18 en los módulos Waveshare, 13 en los HAT Pimoroni. En una placa desnuda cuyo pin BLK o LED es la propia retroiluminación (las placas ILI9341 de 2,8 pulgadas, muchos módulos ST7735) el pin va a 3,3 V, no a un GPIO; ponga -1. Los OLED no la tienen.",
         "ROTATE": "Orientación",
         "ROTATE_DOC": "Gira la imagen según cómo esté montado el módulo. Un OLED gira media vuelta; un LCD TFT gira también por cuartos, de modo que un módulo montado en vertical muestra la disposición horizontal.",
         "ROTATE_0": "Normal",

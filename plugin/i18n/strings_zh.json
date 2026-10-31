@@ -37,7 +37,7 @@
         "GPIO_RESET": "复位 GPIO",
         "GPIO_RESET_DOC": "连接到模块 RST（RES）引脚的 GPIO 的 BCM 编号。通用接线为 25，微雪接线为 27；模块没有复位引脚时填 -1。",
         "GPIO_BL": "背光 GPIO",
-        "GPIO_BL_DOC": "连接到 TFT 液晶 BL（LED）引脚的 GPIO 的 BCM 编号：微雪模块为 18，Pimoroni HAT 为 13；背光直接接 3.3 V 时填 -1。OLED 没有背光。",
+        "GPIO_BL_DOC": "TFT 液晶背光引脚为逻辑输入时，连接到该引脚的 GPIO 的 BCM 编号：微雪模块为 18，Pimoroni HAT 为 13。若裸板的 BLK 或 LED 引脚就是背光本身（2.8 英寸 ILI9341 板、许多 ST7735 模块），该引脚应接 3.3 V 而非 GPIO，并填 -1。OLED 没有背光。",
         "ROTATE": "方向",
         "ROTATE_DOC": "按模块的安装方向旋转画面。OLED 只能转 180 度；TFT 液晶还可以转 90 度，因此竖装的模块也能显示横向布局。",
         "ROTATE_0": "正常",

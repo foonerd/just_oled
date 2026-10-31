@@ -37,7 +37,7 @@
         "GPIO_RESET": "GPIO de réinitialisation",
         "GPIO_RESET_DOC": "Numéro BCM du GPIO relié à la broche RST (RES) du module. 25 dans le câblage générique, 27 dans celui de Waveshare ; -1 si le module n'a pas de broche de réinitialisation.",
         "GPIO_BL": "GPIO du rétroéclairage",
-        "GPIO_BL_DOC": "Numéro BCM du GPIO relié à la broche BL (LED) d'un LCD TFT : 18 sur les modules Waveshare, 13 sur les HAT Pimoroni ; -1 si le rétroéclairage est câblé directement sur le 3,3 V. Les OLED n'en ont pas.",
+        "GPIO_BL_DOC": "Numéro BCM du GPIO relié à la broche de rétroéclairage d'un LCD TFT, lorsque cette broche est une entrée logique : 18 sur les modules Waveshare, 13 sur les HAT Pimoroni. Sur une carte nue dont la broche BLK ou LED est le rétroéclairage lui-même (les cartes ILI9341 de 2,8 pouces, beaucoup de modules ST7735), la broche va au 3,3 V, pas à un GPIO ; mettre -1. Les OLED n'en ont pas.",
         "ROTATE": "Orientation",
         "ROTATE_DOC": "Tourne l'image selon le sens de montage du module. Un OLED tourne d'un demi-tour ; un LCD TFT tourne aussi par quarts de tour, si bien qu'un module monté en portrait affiche la disposition paysage.",
         "ROTATE_0": "Normale",

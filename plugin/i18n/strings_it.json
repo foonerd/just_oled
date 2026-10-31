@@ -37,7 +37,7 @@
         "GPIO_RESET": "GPIO di reset",
         "GPIO_RESET_DOC": "Numero BCM del GPIO collegato al pin RST (RES) del modulo. 25 nel cablaggio generico, 27 in quello Waveshare; -1 se il modulo non ha un pin di reset.",
         "GPIO_BL": "GPIO della retroilluminazione",
-        "GPIO_BL_DOC": "Numero BCM del GPIO collegato al pin BL (LED) di un LCD TFT: 18 sui moduli Waveshare, 13 sugli HAT Pimoroni; -1 se la retroilluminazione è collegata direttamente ai 3,3 V. Gli OLED non ne hanno.",
+        "GPIO_BL_DOC": "Numero BCM del GPIO collegato al pin della retroilluminazione di un LCD TFT, quando quel pin è un ingresso logico: 18 sui moduli Waveshare, 13 sugli HAT Pimoroni. Su una scheda nuda il cui pin BLK o LED è la retroilluminazione stessa (le schede ILI9341 da 2,8 pollici, molti moduli ST7735) il pin va ai 3,3 V, non a un GPIO; impostare -1. Gli OLED non ne hanno.",
         "ROTATE": "Orientamento",
         "ROTATE_DOC": "Ruota l'immagine secondo il verso di montaggio del modulo. Un OLED ruota di mezzo giro; un LCD TFT ruota anche di quarti di giro, così un modulo montato in verticale mostra il layout orizzontale.",
         "ROTATE_0": "Normale",

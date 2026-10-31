@@ -37,7 +37,7 @@
         "GPIO_RESET": "GPIO resetu",
         "GPIO_RESET_DOC": "Numer BCM pinu GPIO podłączonego do pinu RST (RES) modułu. 25 w okablowaniu ogólnym, 27 w okablowaniu Waveshare; -1, gdy moduł nie ma pinu resetu.",
         "GPIO_BL": "GPIO podświetlenia",
-        "GPIO_BL_DOC": "Numer BCM pinu GPIO podłączonego do pinu BL (LED) wyświetlacza LCD TFT: 18 w modułach Waveshare, 13 w HAT-ach Pimoroni; -1, gdy podświetlenie jest podłączone bezpośrednio do 3,3 V. OLED-y go nie mają.",
+        "GPIO_BL_DOC": "Numer BCM pinu GPIO podłączonego do pinu podświetlenia wyświetlacza LCD TFT, gdy ten pin jest wejściem logicznym: 18 w modułach Waveshare, 13 w HAT-ach Pimoroni. Na gołej płytce, której pin BLK lub LED jest samym podświetleniem (płytki ILI9341 2,8 cala, wiele modułów ST7735), pin idzie do 3,3 V, nie do GPIO; wpisz -1. OLED-y go nie mają.",
         "ROTATE": "Orientacja",
         "ROTATE_DOC": "Obraca obraz stosownie do tego, jak zamontowano moduł. OLED obraca się o pół obrotu; LCD TFT także o ćwierć obrotu, więc moduł zamontowany pionowo pokazuje układ poziomy.",
         "ROTATE_0": "Normalna",
