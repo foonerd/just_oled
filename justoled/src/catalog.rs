@@ -209,8 +209,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 64,
         buses: BOTH,
         i2c_addresses: A3C3D,
-        verified: Verified::Described,
-        note: "0.96\" and 1.3\" modules: Waveshare 0.96inch OLED (A)/(B), Adafruit 326 and 938, DFRobot DFR0486 and DFR0650, the generic four-pin I2C board; also the panel in most Pi cases (Argon, Pironman).",
+        verified: Verified::Bench,
+        note: "0.96\" and 1.3\" modules: Waveshare 0.96inch OLED (A)/(B), Adafruit 326 and 938, DFRobot DFR0486 and DFR0650, the generic four-pin I2C board; also the panel in most Pi cases (Argon, Pironman). Verified on a generic 0.96\" module over I2C at 0x3C.",
     },
     Entry {
         id: "ssd1306_128x32",
@@ -299,8 +299,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 64,
         buses: BOTH,
         i2c_addresses: A3C3D,
-        verified: Verified::Described,
-        note: "1.3\" modules: Waveshare 1.3inch OLED (A)/(B) and 1.3inch OLED HAT, the generic 1.3\" four-pin I2C board. Written a page at a time; two columns of offset in the 132-wide RAM.",
+        verified: Verified::Bench,
+        note: "1.3\" modules: Waveshare 1.3inch OLED (A)/(B) and 1.3inch OLED HAT, the generic 1.3\" four-pin I2C board. Written a page at a time; two columns of offset in the 132-wide RAM. Verified on a generic 1.3\" module over I2C at 0x3C.",
     },
     Entry {
         id: "sh1107_128x128",

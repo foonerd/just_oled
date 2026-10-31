@@ -5,6 +5,8 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 ## [Unreleased]
 
 - `ssd1306_128x32` verified on a 0.91" module over I2C at 0x3C, at the Pi's 100 kHz: 21 fps at 47 ms a frame, a setting saved and a track skipped while music played both shown at once.
+- `ssd1306_128x64` verified on a 0.96" module over I2C at 0x3C: 10.5 fps at 93 ms a frame at 100 kHz, a setting saved and a track skipped while music played both shown at once; 22 fps at 23 ms a frame at 400 kHz.
+- `sh1106_128x64` verified on a 1.3" module over I2C at 0x3C at 400 kHz: the test picture to all four edges (the two-column offset right), 25 fps at 25 ms a frame.
 
 ## [0.2.1] - 2026-10-31
 
