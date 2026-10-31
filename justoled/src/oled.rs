@@ -1065,6 +1065,11 @@ mod tft {
         bgr: bool,
         /// The glass shows the RAM inverted, so the controller inverts it back.
         invert: bool,
+        /// The glass scans columns the other way round from the ST7789
+        /// glasses, so every turn carries MX the other way (the ILI9341:
+        /// Adafruit's 0x48, 0x28, 0x88, 0xE8). Its window fills the RAM,
+        /// so the origin does not move with it.
+        mirror_x: bool,
     }
 
     fn geometry(entry: &Entry) -> Geometry {
@@ -1088,6 +1093,7 @@ mod tft {
             row_off,
             bgr,
             invert,
+            mirror_x: entry.controller == Controller::Ili9341,
         }
     }
 
@@ -1097,15 +1103,24 @@ mod tft {
         let g = geometry(entry);
         let (w, h) = (entry.width, entry.height);
         let colour = if g.bgr { BGR } else { 0 };
+        let mirror = if g.mirror_x { MX } else { 0 };
         match rotate {
-            Rotate::Normal => (colour, g.col_off, g.row_off),
+            Rotate::Normal => (colour ^ mirror, g.col_off, g.row_off),
             Rotate::Half => (
-                MX | MY | colour,
+                (MX | MY | colour) ^ mirror,
                 g.ram_w - w - g.col_off,
                 g.ram_h - h - g.row_off,
             ),
-            Rotate::Quarter => (MX | MV | colour, g.row_off, g.ram_w - w - g.col_off),
-            Rotate::ThreeQuarter => (MY | MV | colour, g.ram_h - h - g.row_off, g.col_off),
+            Rotate::Quarter => (
+                (MX | MV | colour) ^ mirror,
+                g.row_off,
+                g.ram_w - w - g.col_off,
+            ),
+            Rotate::ThreeQuarter => (
+                (MY | MV | colour) ^ mirror,
+                g.ram_h - h - g.row_off,
+                g.col_off,
+            ),
         }
     }
 
@@ -1393,9 +1408,13 @@ mod tests {
         assert_eq!(placement(e, Rotate::Half), (0xC0, 53, 40));
         assert_eq!(placement(e, Rotate::Quarter), (0x60, 40, 53));
         assert_eq!(placement(e, Rotate::ThreeQuarter), (0xA0, 40, 52));
-        // The BGR glasses carry the colour bit.
+        // The BGR glasses carry the colour bit; the ILI9341 scans X the
+        // other way, so its four turns are Adafruit's 0x48, 0x28, 0x88, 0xE8.
         let e = catalog::find("ili9341_240x320").unwrap();
-        assert_eq!(placement(e, Rotate::Normal).0, 0x08);
+        assert_eq!(placement(e, Rotate::Normal), (0x48, 0, 0));
+        assert_eq!(placement(e, Rotate::Quarter), (0x28, 0, 0));
+        assert_eq!(placement(e, Rotate::Half), (0x88, 0, 0));
+        assert_eq!(placement(e, Rotate::ThreeQuarter), (0xE8, 0, 0));
         assert!(e.controller.is_tft() && e.format() == Format::Rgb565);
         assert_eq!(spi_settings(Controller::St7789).1, 40_000_000);
         assert_eq!(spi_settings(Controller::St7735).1, 15_000_000);
