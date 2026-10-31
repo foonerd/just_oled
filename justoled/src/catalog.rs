@@ -219,8 +219,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 32,
         buses: BOTH,
         i2c_addresses: A3C3D,
-        verified: Verified::Described,
-        note: "0.91\" modules: Waveshare 0.91inch OLED Module, Adafruit 4440 and 661, SparkFun Qwiic 0.91\", DFRobot DFR0647/0648, 52Pi and UCTRONICS rack panels.",
+        verified: Verified::Bench,
+        note: "0.91\" modules: Waveshare 0.91inch OLED Module, Adafruit 4440 and 661, SparkFun Qwiic 0.91\", DFRobot DFR0647/0648, 52Pi and UCTRONICS rack panels. Verified on a generic 0.91\" module over I2C at 0x3C.",
     },
     Entry {
         id: "ssd1306_64x48",
