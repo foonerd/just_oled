@@ -339,8 +339,8 @@ pub const ENTRIES: &[Entry] = &[
         height: 128,
         buses: BOTH,
         i2c_addresses: A3C3D,
-        verified: Verified::Described,
-        note: "1.5\" greyscale modules: Waveshare 1.5inch OLED Module, Adafruit 4741. Sixteen grey levels.",
+        verified: Verified::Bench,
+        note: "1.5\" greyscale modules: Waveshare 1.5inch OLED Module, Adafruit 4741. Sixteen grey levels. Verified on the Waveshare module over SPI.",
     },
     Entry {
         id: "ssd1327_128x96",

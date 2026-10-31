@@ -5,6 +5,7 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 ## [Unreleased]
 
 - `ssd1331_96x64` verified on a 0.95" module over SPI: the test picture to all four edges, the colours in order, the ramp smooth; 25 fps at 12.8 ms a frame.
+- `ssd1327_128x128` verified on the Waveshare 1.5" greyscale module over SPI, the first panel of the four-bit greyscale family on a bench: the test picture to all four edges, the bars as three greys, the ramp in sixteen steps; the playing page at 24 fps, 8.5 ms a frame.
 
 ## [0.2.2] - 2026-10-31
 
