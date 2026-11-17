@@ -284,7 +284,7 @@ impl Writer {
         slots: usize,
     ) -> io::Result<Self> {
         sweep(dir);
-        let demand = demand.clean();
+        let demand = demand.resolved(rate);
         let bins = demand.bins;
         let slots = slots.max(2);
         let slot_bytes = slot_bytes(bins);

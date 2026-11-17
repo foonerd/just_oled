@@ -23,15 +23,16 @@ pub struct Analyser {
 
 impl Analyser {
     /// For a stream of `channels` at `rate`, measured as `demand` asks;
-    /// `hop` how many frames between measurements, zero for the bank's.
+    /// `hop` how many frames between measurements, zero for the rate's.
     pub fn new(rate: u32, channels: u32, demand: Demand, hop: usize) -> Self {
         let bank = bank::Analyser::new(rate, demand);
         let window = bank.window();
         let hop = if hop == 0 {
-            bank::HOP
+            Demand::hop_for_rate(rate).min(window)
         } else {
             hop.clamp(1, window)
         };
+        let bank = bank.with_hop(hop);
         let channels = (channels as usize).clamp(1, MAX_CHANNELS);
         let bins = bank.demand().bins;
         Self {

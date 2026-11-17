@@ -122,8 +122,9 @@ impl Demand {
         .clean()
     }
 
-    /// The window a band count wants: fine enough for its lowest band to
-    /// be told from its neighbour without paying for more.
+    /// The window a band count wants at the audio rates, 44.1 and 48 kHz:
+    /// fine enough for its lowest band to be told from its neighbour
+    /// without paying for more.
     pub fn window_for(bins: usize) -> usize {
         match bins {
             0..=64 => 4096,
@@ -132,12 +133,42 @@ impl Demand {
         }
     }
 
+    /// How many times the rate doubles above the audio rates: 0 up to
+    /// 48 kHz, 1 at 88.2 and 96, 2 at 176.4 and 192, 3 at 352.8 and 384.
+    pub fn doublings(rate: u32) -> u32 {
+        let mut n = 0;
+        let mut step = 48_000u32;
+        while rate > step + step / 2 && n < 8 {
+            n += 1;
+            step *= 2;
+        }
+        n
+    }
+
+    /// The window a band count wants for a stream at `rate`: the one for
+    /// the audio rates, doubled with each doubling of the rate so an FFT
+    /// bin stays about as wide in hertz and the lowest bands keep bins of
+    /// their own, up to the longest window the list has.
+    pub fn window_for_rate(bins: usize, rate: u32) -> usize {
+        let longest = WINDOWS[WINDOWS.len() - 1];
+        (Self::window_for(bins) << Self::doublings(rate)).min(longest)
+    }
+
+    /// The hop a stream at `rate` wants: [`HOP`] at the audio rates,
+    /// doubled with the rate so the measurements keep their cadence of
+    /// some 47 a second and the FFT is not run eight times as often at
+    /// 384 kHz for a picture drawn 25 times a second.
+    pub fn hop_for_rate(rate: u32) -> usize {
+        HOP << Self::doublings(rate)
+    }
+
     /// The demand within what a bank can be: 1 to 256 bands, one or two
-    /// channels, a window from the list, longer than a hop.
+    /// channels, a window from the list or zero for the one the band
+    /// count and the stream's rate want.
     pub fn clean(self) -> Self {
         let bins = self.bins.clamp(1, MAX_BINS);
         let window = if self.window == 0 {
-            Self::window_for(bins)
+            0
         } else {
             WINDOWS
                 .iter()
@@ -150,6 +181,20 @@ impl Demand {
             channels: self.channels.clamp(1, 2),
             scale: self.scale,
             window,
+        }
+    }
+
+    /// The demand with its window settled for a stream at `rate`: an
+    /// asked-for window as cleaned, a zero one filled in for the band
+    /// count and the rate.
+    pub fn resolved(self, rate: u32) -> Self {
+        let clean = self.clean();
+        if clean.window != 0 {
+            return clean;
+        }
+        Self {
+            window: Self::window_for_rate(clean.bins, rate),
+            ..clean
         }
     }
 }
@@ -249,9 +294,11 @@ pub struct Analyser {
 }
 
 impl Analyser {
-    /// For a stream at `rate`, as `demand` asks, the demand cleaned first.
+    /// For a stream at `rate`, as `demand` asks, the demand cleaned first
+    /// and its window settled for the rate. The hold's fall is set for
+    /// the rate's hop; `with_hop` resets it for another.
     pub fn new(rate: u32, demand: Demand) -> Self {
-        let demand = demand.clean();
+        let demand = demand.resolved(rate);
         let window = demand.window;
         let centres = centres(demand.bins, demand.scale);
         let edges = edges(demand.bins, demand.scale);
@@ -263,7 +310,6 @@ impl Analyser {
             })
             .collect();
         let groups = groups(&centres, demand.bins);
-        let hop_s = HOP as f32 / rate.max(1) as f32;
         Self {
             demand,
             rate,
@@ -281,12 +327,25 @@ impl Analyser {
             hold: vec![vec![0.0; demand.bins]; demand.channels],
             per_channel: [vec![0.0; demand.bins], vec![0.0; demand.bins]],
             mixed: vec![0.0; demand.bins],
-            decay: 0.5f32.powf(hop_s / HOLD_HALF_LIFE_S),
+            decay: Self::decay_for(Demand::hop_for_rate(rate), rate),
             flux: [[0.0; ONSET_WINDOW]; 4],
             flux_at: 0,
             last_group: [0.0; 4],
             groups,
         }
+    }
+
+    /// The hold's fall per hop of `hop` frames at `rate`, from the half-life.
+    fn decay_for(hop: usize, rate: u32) -> f32 {
+        let hop_s = hop as f32 / rate.max(1) as f32;
+        0.5f32.powf(hop_s / HOLD_HALF_LIFE_S)
+    }
+
+    /// The analyser told the hop it is fed at, so the hold falls by half
+    /// in its quarter second whatever the hop.
+    pub fn with_hop(mut self, hop: usize) -> Self {
+        self.decay = Self::decay_for(hop.max(1), self.rate);
+        self
     }
 
     pub fn demand(&self) -> Demand {
@@ -495,8 +554,8 @@ pub fn edges(bins: usize, scale: Scale) -> Vec<(f32, f32)> {
 /// The FFT bin range of each band and its weight. Bands that would read
 /// the same bins are told apart: the range is split among them when it
 /// holds enough bins, else they share it with triangular weights by how
-/// near each band's centre lies to the bins, the nearest at full weight,
-/// and a range with no bin at all lights only its first band.
+/// near each band's centre lies to the bins, the nearest at full weight;
+/// a range with no bin at all is shared whole, every band at full weight.
 fn filterbank(
     edges: &[(f32, f32)],
     centres: &[f32],
@@ -560,10 +619,14 @@ fn filterbank(
                 }
             }
         } else {
+            // No bin inside the run's range: every band shows the one bin
+            // the range sits in. A coarse bin under fine bands (a high
+            // rate on a window the list caps) then reads as a plateau of
+            // the energy there, not as dark bars.
             let one = lo.min(nyquist.saturating_sub(1)).max(1);
             for k in 0..run {
                 ranges[i + k] = (one, one + 1);
-                weights[i + k] = if k == 0 { 1.0 } else { 0.0 };
+                weights[i + k] = 1.0;
             }
         }
         i = j;
@@ -626,10 +689,37 @@ mod tests {
     }
 
     #[test]
-    fn a_demand_is_cleaned_and_its_window_follows_the_band_count() {
-        assert_eq!(Demand::new(64, 2, Scale::Log).window, 4096);
-        assert_eq!(Demand::new(128, 1, Scale::Mel).window, 8192);
-        assert_eq!(Demand::new(256, 2, Scale::Log).window, 16384);
+    fn a_demand_is_cleaned_and_its_window_follows_the_band_count_and_the_rate() {
+        // Zero stays zero through cleaning: the rate settles it.
+        assert_eq!(Demand::new(64, 2, Scale::Log).window, 0);
+        assert_eq!(Demand::new(64, 2, Scale::Log).resolved(44_100).window, 4096);
+        assert_eq!(
+            Demand::new(128, 1, Scale::Mel).resolved(48_000).window,
+            8192
+        );
+        assert_eq!(
+            Demand::new(256, 2, Scale::Log).resolved(48_000).window,
+            16384
+        );
+        // Each doubling of the rate doubles the window, to the list's end.
+        assert_eq!(Demand::new(64, 2, Scale::Log).resolved(96_000).window, 8192);
+        assert_eq!(
+            Demand::new(64, 2, Scale::Log).resolved(176_400).window,
+            16384
+        );
+        assert_eq!(
+            Demand::new(64, 2, Scale::Log).resolved(192_000).window,
+            16384
+        );
+        assert_eq!(
+            Demand::new(64, 2, Scale::Log).resolved(384_000).window,
+            16384
+        );
+        assert_eq!(
+            Demand::new(128, 2, Scale::Log).resolved(96_000).window,
+            16384
+        );
+        // An asked-for window is snapped to the list and left alone by the rate.
         let odd = Demand {
             bins: 999,
             channels: 7,
@@ -638,6 +728,13 @@ mod tests {
         }
         .clean();
         assert_eq!((odd.bins, odd.channels, odd.window), (256, 2, 4096));
+        assert_eq!(odd.resolved(384_000).window, 4096);
+        // The hop keeps the cadence near 47 a second.
+        assert_eq!(Demand::hop_for_rate(44_100), 1024);
+        assert_eq!(Demand::hop_for_rate(96_000), 2048);
+        assert_eq!(Demand::hop_for_rate(192_000), 4096);
+        assert_eq!(Demand::hop_for_rate(384_000), 8192);
+        assert_eq!(Demand::hop_for_rate(768_000), 16384);
         assert_eq!(Scale::parse(" MEL "), Some(Scale::Mel));
         assert_eq!(Scale::parse("octave"), None);
         for scale in [Scale::Log, Scale::Mel, Scale::Linear] {
@@ -751,6 +848,48 @@ mod tests {
         let (ranges, weights) = filterbank(wide.edges(), wide.centres(), 48_000, 16384);
         assert!(ranges.windows(2).all(|w| w[0] != w[1]));
         assert!(weights.iter().all(|w| *w == 1.0));
+    }
+
+    #[test]
+    fn no_band_goes_dark_at_a_high_sample_rate() {
+        // A 0.91" strip at 192 and 384 kHz showed its lowest bars dark: on
+        // the 4096 window an FFT bin was 47 and 94 Hz wide, the lowest 7
+        // and 14 of 64 log bands fell into bin 1, and all but the first
+        // were given weight zero. The window now follows the rate.
+        for &(rate, bands_in_bin_1) in &[(192_000u32, 7usize), (384_000, 14)] {
+            // On the 4096 window these many bands have no bin of their own:
+            // 7 and 14, so 6 and 13 were dark, three and six bars of 32.
+            let bin_width = rate as f32 / 4096.0;
+            let empty = edges(64, Scale::Log)
+                .iter()
+                .take_while(|&&(lo, hi)| {
+                    ((hi / bin_width).ceil() as usize) <= ((lo / bin_width).floor() as usize).max(1)
+                })
+                .count();
+            assert_eq!(empty, bands_in_bin_1, "{rate}: bands without a bin on 4096");
+            // On that window they now share the bin whole rather than go dark.
+            let old = filterbank(&edges(64, Scale::Log), &centres(64, Scale::Log), rate, 4096);
+            assert!(old.1.iter().all(|&w| w > 0.0), "{rate}: no weight is zero");
+            // With the window the rate wants, the bass bands have bins of
+            // their own again: the first range is not shared.
+            let a = Analyser::new(rate, Demand::new(64, 2, Scale::Log));
+            assert_eq!(a.window(), 16384);
+            let (ranges, weights) = filterbank(a.edges(), a.centres(), rate, a.window());
+            assert!(weights.iter().all(|&w| w > 0.0), "{rate}: no dark band");
+            assert!(
+                ranges[0] != ranges[1] || weights[0] != weights[1],
+                "{rate}: bands 0 and 1 differ"
+            );
+        }
+        // Past the list's longest window (PCM at 705.6 or 768 kHz) the
+        // lowest bands share a bin and show its level, none of them dark.
+        let a = Analyser::new(768_000, Demand::new(64, 2, Scale::Log));
+        assert_eq!(a.window(), 16384);
+        let (_, weights) = filterbank(a.edges(), a.centres(), 768_000, a.window());
+        assert!(weights.iter().all(|&w| w > 0.0));
+        // At the audio rates nothing moved.
+        let a = Analyser::new(44_100, Demand::new(64, 2, Scale::Log));
+        assert_eq!(a.window(), 4096);
     }
 
     #[test]
