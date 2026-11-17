@@ -4,6 +4,9 @@ All notable changes to Just OLED are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-17
+
+- The lowest spectrum bars no longer go dark on high-rate streams. The analyser's FFT window was fixed by the band count (4096 samples for the 64 bands the plugin asks for), so at 192 kHz an FFT bin was 47 Hz wide and at 384 kHz 94 Hz, the lowest 7 and 14 of the 64 log-spaced bands fell into one bin, and all but the first of them were given nothing to show: three and six dark bars at the bass end of a 32-bar strip, none at 44.1 or 48 kHz. The window now doubles with each doubling of the sample rate (8192 at 88.2 and 96 kHz, 16384 from 176.4 kHz), so an FFT bin stays about 11 Hz wide and every band keeps a bin of its own; the hop between measurements doubles with it, so the analyser measures some 46 times a second at every rate rather than 375 times at 384 kHz, and costs less than before there. Past the longest window (PCM at 705.6 and 768 kHz) bands that still share a bin share its level instead of going dark. One-bit audio (DSD, DoP) is measured by density and never passed through the FFT; nothing changes for it. Reported by Andron66 on a 0.91" strip at 192 and 384 kHz.
 - `ssd1331_96x64` verified on a 0.95" module over SPI: the test picture to all four edges, the colours in order, the ramp smooth; 25 fps at 12.8 ms a frame.
 - `ssd1327_128x128` verified on the Waveshare 1.5" greyscale module over SPI, the first panel of the four-bit greyscale family on a bench: the test picture to all four edges, the bars as three greys, the ramp in sixteen steps; the playing page at 24 fps, 8.5 ms a frame.
 
