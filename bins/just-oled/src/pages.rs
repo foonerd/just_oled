@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use justoled::canvas::{Canvas, Colour};
 use justoled::catalog::Format;
-use justoled::font::{Font, CLOCK, HUGE, LARGE, MEDIUM, SMALL};
+use justoled::font::{Font, CLOCK, CLOCK_SMALL, HUGE, LARGE, MEDIUM, SMALL};
 
 use crate::control::Track;
 use crate::meter::Bars;
@@ -1250,11 +1250,9 @@ pub fn standby(canvas: &mut Canvas, clock: &str, date: &str, net: &Net, look: &L
     let pal = palette(canvas.format(), &look.theme);
     let f = Fonts::for_panel(w, h);
     if h < 40 {
-        let y = (h - f.medium.line_height as i32) / 2;
-        canvas.text_centred(f.medium, 0, y, w, clock, pal.title);
+        draw_clock(canvas, clock, 0, h, pal.title);
         return;
     }
-    let small = f.small.line_height as i32;
     if look.show_ip && !net.ip.is_empty() {
         canvas.text(f.small, 1, 0, &net.ip, pal.detail);
     }
@@ -1262,65 +1260,103 @@ pub fn standby(canvas: &mut Canvas, clock: &str, date: &str, net: &Net, look: &L
         let s = f.scale;
         draw_connection(canvas, w - 13 * s, 3 * s, s, net.connection, pal.detail);
     }
-    // The time in the clock digits where they fit, a 12-hour form's am/pm
-    // beside them in the medium face on the same baseline; else a doubled
-    // or plain large face, else the medium, stepping down as the text is
-    // wide.
-    let room = h - 2 * small;
-    let top = small;
-    let (digits, suffix) = match clock.rsplit_once(' ') {
-        Some((d, s)) if !CLOCK.covers(clock) && CLOCK.covers(d) => (d, Some(s)),
-        _ => (clock, None),
-    };
-    let suffix_w = suffix.map_or(0, |s| f.medium.width(s) + 6);
-    let digits_w = CLOCK.width(digits);
-    if room >= CLOCK.line_height as i32 && CLOCK.covers(digits) && digits_w + suffix_w <= w - 2 {
-        let x = (w - digits_w - suffix_w) / 2;
-        let y = top + (room - CLOCK.line_height as i32) / 2;
-        canvas.text(CLOCK, x, y, digits, pal.title);
-        if let Some(s) = suffix {
-            let y = y + (CLOCK.ascent as i32 - f.medium.ascent as i32);
-            canvas.text(f.medium, x + digits_w + 6, y, s, pal.title);
-        }
-    } else {
-        let mut choices: Vec<(&Font, i32)> = Vec::new();
-        if room >= 2 * f.large.line_height as i32 + 2 {
-            choices.push((f.large, 2));
-        }
-        if room >= f.large.line_height as i32 + 2 {
-            choices.push((f.large, 1));
-        }
-        choices.push((f.medium, 1));
-        let (font, scale) = choices
-            .iter()
-            .copied()
-            .find(|(f, s)| f.width(clock) * s <= w - 2)
-            .unwrap_or((f.medium, 1));
-        let text_w = font.width(clock) * scale;
-        let text_h = font.line_height as i32 * scale;
-        canvas.text_scaled(
-            font,
-            (w - text_w) / 2,
-            top + (room - text_h) / 2,
-            clock,
-            pal.title,
-            scale,
-        );
-    }
     let date_font = if h >= 120 && f.medium.width(date) <= w - 2 {
         f.medium
     } else {
         f.small
     };
+    let date_y = h - date_font.line_height as i32;
     let fitted = date_font.fit(date, w - 2);
-    canvas.text_centred(
-        date_font,
-        0,
-        h - date_font.line_height as i32,
-        w,
-        &fitted,
-        pal.detail,
-    );
+    canvas.text_centred(date_font, 0, date_y, w, &fitted, pal.detail);
+    // The clock has the rows between the two: from the address row's
+    // baseline, or the connection mark's foot where that is lower, to
+    // where the date's figures start. The top row is kept with the
+    // address off, since the mark stands in it.
+    let top = (f.small.ascent as i32).max(11 * f.scale);
+    let bottom = date_y + digit_rows(date_font).0;
+    draw_clock(canvas, clock, top, bottom, pal.title);
+}
+
+/// The faces a clock may be set in, the largest first; the two clock
+/// faces hold figures alone.
+const CLOCK_FACES: [&Font; 6] = [CLOCK, CLOCK_SMALL, HUGE, LARGE, MEDIUM, SMALL];
+/// Clear rows kept between the clock's figures and the rows beside them.
+const CLOCK_GAP: i32 = 2;
+
+/// The rows of its cell a face's figures cover, the top one and one past
+/// the bottom.
+fn digit_rows(font: &Font) -> (i32, i32) {
+    font.ink_rows("0123456789")
+        .unwrap_or((0, font.line_height as i32))
+}
+
+/// A clock text at its widest, so the face is chosen by the format and
+/// not by the hour: an hour of one figure counts as two, am and pm as
+/// the wider letter.
+fn widest(text: &str) -> String {
+    let mut out: String = text
+        .chars()
+        .map(|c| match c {
+            ' ' | '0'..='9' => '0',
+            'A' | 'P' => 'M',
+            'a' | 'p' => 'm',
+            other => other,
+        })
+        .collect();
+    if out.find(':') == Some(1) {
+        out.insert(0, '0');
+    }
+    out
+}
+
+/// The time in the largest face whose figures fit the rows `top..bottom`
+/// and the panel's width. The fit goes by the figures' ink, not their
+/// cell: figures end at the baseline and start well under the cell's
+/// top, so a face fits rows its line height would not. A 12-hour form's
+/// am or pm stands beside the figures, on their baseline, in a smaller
+/// face.
+fn draw_clock(canvas: &mut Canvas, clock: &str, top: i32, bottom: i32, colour: Colour) {
+    let w = canvas.width() as i32;
+    let (digits, suffix) = match clock.rsplit_once(' ') {
+        Some((d, s)) if !CLOCK.covers(clock) && CLOCK.covers(d) => (d, Some(s)),
+        _ => (clock, None),
+    };
+    // The face and the gap for what stands beside the figures.
+    let beside = |face: &Font| -> (&'static Font, i32) {
+        match face.line_height {
+            80.. => (LARGE, 6),
+            60..=79 => (MEDIUM, 4),
+            _ => (SMALL, 3),
+        }
+    };
+    let width = |face: &Font, digits: &str, suffix: Option<&str>| {
+        let (small, gap) = beside(face);
+        face.width(digits) + suffix.map_or(0, |s| gap + small.width(s))
+    };
+    let fits = |face: &Font| {
+        let (ink_top, ink_bottom) = digit_rows(face);
+        let (small, _) = beside(face);
+        // What stands beside the figures may hang under their baseline
+        // (the p of pm): that and a row are kept clear, at every hour.
+        let hang = suffix.map_or(0, |_| (small.line_height - small.ascent) as i32 + 1);
+        face.covers(digits)
+            && width(face, &widest(digits), suffix.map(widest).as_deref()) <= w - 2
+            && ink_bottom - ink_top + 2 * CLOCK_GAP.max(hang) <= bottom - top
+    };
+    let face = CLOCK_FACES
+        .iter()
+        .copied()
+        .find(|face| fits(face))
+        .unwrap_or(SMALL);
+    let (ink_top, ink_bottom) = digit_rows(face);
+    let (small, gap) = beside(face);
+    let x = (w - width(face, digits, suffix)) / 2;
+    let y = top + (bottom - top - (ink_bottom - ink_top)) / 2 - ink_top;
+    canvas.text(face, x, y, digits, colour);
+    if let Some(s) = suffix {
+        let y = y + face.ascent as i32 - small.ascent as i32;
+        canvas.text(small, x + face.width(digits) + gap, y, s, colour);
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -1392,6 +1428,18 @@ mod tests {
         (0..c.height() as i32)
             .filter(|&y| (0..c.width() as i32).any(|x| c.get(x, y) != Colour::BLACK))
             .collect()
+    }
+
+    /// The lit rows as runs: the first and the last row of each.
+    fn bands(c: &Canvas) -> Vec<(i32, i32)> {
+        let mut out: Vec<(i32, i32)> = Vec::new();
+        for y in lit_rows(c) {
+            match out.last_mut() {
+                Some(last) if last.1 + 1 == y => last.1 = y,
+                _ => out.push((y, y)),
+            }
+        }
+        out
     }
 
     fn view<'a>(
@@ -1622,40 +1670,78 @@ mod tests {
     }
 
     #[test]
-    fn the_standby_clock_takes_the_digits_face_where_it_fits() {
-        let net = Net::default();
+    fn the_standby_clock_is_fitted_by_its_figures() {
+        let net = Net {
+            connection: Connection::Ethernet,
+            ip: "192.168.1.114".into(),
+        };
         let look = Look::default();
-        // 320x240: the 80-row digits, the date in the medium face.
-        let mut c = Canvas::new(Format::Rgb565, 320, 240);
-        standby(&mut c, "12:34", "Tue 28 Oct", &net, &look);
-        let rows = lit_rows(&c);
-        let clock_rows: Vec<i32> = rows
-            .iter()
-            .copied()
-            .filter(|&y| (20..200).contains(&y))
-            .collect();
-        let span = clock_rows.last().unwrap() - clock_rows.first().unwrap() + 1;
-        assert!(
-            (44..=66).contains(&span),
-            "digit ink {span} rows: {clock_rows:?}"
-        );
-        // A 12-hour clock: the digits in the clock face, the am/pm beside
-        // them, not a doubled face; the same ink height for the digits.
-        let mut c = Canvas::new(Format::Rgb565, 320, 240);
-        standby(&mut c, "12:34 pm", "Tue 28 Oct", &net, &look);
-        let rows = lit_rows(&c);
-        let clock_rows: Vec<i32> = rows
-            .iter()
-            .copied()
-            .filter(|&y| (20..200).contains(&y))
-            .collect();
-        let span2 = clock_rows.last().unwrap() - clock_rows.first().unwrap() + 1;
-        assert!((span2 - span).abs() <= 8, "{span} vs {span2}");
-        // 128x128 keeps its way: the digits face does not fit 126 pixels.
-        assert!(CLOCK.width("12:34") > 126);
-        let mut c = Canvas::new(Format::Rgb565, 128, 128);
-        standby(&mut c, "12:34", "Tue 28 Oct", &net, &look);
-        assert!(!lit_rows(&c).is_empty());
+        let quiet = Look {
+            show_ip: false,
+            ..Look::default()
+        };
+        let page = |format: Format, w: u16, h: u16, clock: &str, look: &Look| {
+            let mut c = Canvas::new(format, w, h);
+            standby(&mut c, clock, "Thu 16 Oct 2026", &net, look);
+            bands(&c)
+        };
+        let rows = |band: (i32, i32)| band.1 - band.0 + 1;
+        // Clear rows between a band and the one under it.
+        let clear = |b: &[(i32, i32)], i: usize| b[i + 1].0 - b[i].1 - 1;
+
+        // 128x64: the address, the clock and the date stay three bands,
+        // and the clock is the 48-pixel figures, 34 rows where 17 were.
+        let b = page(Format::Paged1, 128, 64, "20:45", &look);
+        assert_eq!(b.len(), 3, "{b:?}");
+        assert_eq!(rows(b[1]), 34, "{b:?}");
+        assert!(clear(&b, 0) >= 2 && clear(&b, 1) >= 2, "{b:?}");
+        // The address off changes nothing under the top row: the
+        // connection mark stands there still.
+        let q = page(Format::Paged1, 128, 64, "20:45", &quiet);
+        assert_eq!(q[1..], b[1..], "{q:?}");
+        // Seconds are wider: the next face down, and still inside.
+        let s = page(Format::Paged1, 128, 64, "20:45:30", &look);
+        assert_eq!((s.len(), rows(s[1])), (3, 24), "{s:?}");
+        // A 12-hour form: its figures no smaller than that, the pm beside
+        // them hanging clear of the date.
+        let p = page(Format::Paged1, 128, 64, "8:45 pm", &look);
+        assert_eq!(p.len(), 3, "{p:?}");
+        assert!(rows(p[1]) >= 24 && clear(&p, 1) >= 1, "{p:?}");
+        let p = page(Format::Grey4, 256, 64, "8:45 pm", &look);
+        assert_eq!(p.len(), 3, "{p:?}");
+        assert!(rows(p[1]) >= 24 && clear(&p, 1) >= 1, "{p:?}");
+
+        // A strip: the time alone, 24 of its 32 rows where 12 were.
+        let b = page(Format::Paged1, 128, 32, "20:45", &look);
+        assert_eq!(b.len(), 1, "{b:?}");
+        assert_eq!(rows(b[0]), 24, "{b:?}");
+        let p = page(Format::Paged1, 128, 32, "8:45 pm", &look);
+        assert!(p[0].0 >= 1 && p.last().unwrap().1 <= 30, "{p:?}");
+
+        // 128x128: the 64-pixel figures are too wide, the 48 are not; no
+        // face is drawn doubled.
+        assert!(CLOCK.width("23:59") > 126 && CLOCK_SMALL.width("23:59") <= 126);
+        let b = page(Format::Rgb565, 128, 128, "20:45", &look);
+        assert_eq!((b.len(), rows(b[1])), (3, 34), "{b:?}");
+        // The face follows the format, not the hour: nine o'clock would
+        // fit the larger figures here, ten would not, both get the same.
+        let nine = page(Format::Rgb565, 128, 128, "9:59 pm", &look);
+        let ten = page(Format::Rgb565, 128, 128, "10:00 pm", &look);
+        assert_eq!(nine[1], ten[1], "{nine:?} {ten:?}");
+        assert!(CLOCK_SMALL.width("9:59") + 4 + MEDIUM.width("pm") <= 126);
+
+        // 320x240: the 64-pixel figures, and a 12-hour form in the same.
+        let b = page(Format::Rgb565, 320, 240, "12:34", &look);
+        assert_eq!((b.len(), rows(b[1])), (3, 46), "{b:?}");
+        let p = page(Format::Rgb565, 320, 240, "12:34 pm", &look);
+        assert_eq!(p[1].0, b[1].0, "{p:?}");
+        assert!(rows(p[1]) - rows(b[1]) <= 8, "{p:?}");
+
+        // The widest form of a clock text.
+        assert_eq!(widest("9:59"), "00:00");
+        assert_eq!(widest("12:07:31"), "00:00:00");
+        assert_eq!(widest("pm"), "mm");
+        assert_eq!(widest("AM"), "MM");
     }
 
     #[test]

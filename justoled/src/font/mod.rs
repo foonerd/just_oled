@@ -12,6 +12,7 @@ mod evo_12;
 mod evo_16;
 mod evo_24;
 mod evo_32;
+mod evo_48;
 mod evo_64;
 
 /// A glyph's ink and metrics: `left` and `top` place the ink's box in the
@@ -49,8 +50,11 @@ pub const LARGE: &Font = &evo_24::FONT;
 /// 40-pixel lines: titles on a panel of 200 rows and more.
 pub const HUGE: &Font = &evo_32::FONT;
 /// 80-pixel lines, the digits, colon, dot, dash and slash alone: the
-/// standby clock where it fits, in place of a doubled smaller face.
+/// standby clock where it fits.
 pub const CLOCK: &Font = &evo_64::FONT;
+/// 60-pixel lines, the same glyphs: the standby clock where the larger
+/// face does not fit, a panel 128 pixels wide or 64 rows tall.
+pub const CLOCK_SMALL: &Font = &evo_48::FONT;
 
 impl Font {
     /// The glyph for `ch`, or `None` when the font has no such ink.
@@ -65,6 +69,16 @@ impl Font {
     /// Whether every character of `text` has its own glyph in the font.
     pub fn covers(&self, text: &str) -> bool {
         text.chars().all(|c| self.glyph(c).is_some())
+    }
+
+    /// The rows of the line's cell that `text`'s ink covers, the top one
+    /// and one past the bottom; `None` for text without ink.
+    pub fn ink_rows(&self, text: &str) -> Option<(i32, i32)> {
+        text.chars()
+            .filter_map(|c| self.glyph_or_mark(c))
+            .filter(|g| g.height > 0)
+            .map(|g| (g.top as i32, g.top as i32 + g.height as i32))
+            .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
     }
 
     /// The glyph for `ch`, else the one drawn in its place: the
@@ -146,8 +160,25 @@ mod tests {
         assert_eq!(LARGE.line_height, 30);
         assert_eq!(HUGE.line_height, 40);
         assert_eq!(CLOCK.line_height, 80);
+        assert_eq!(CLOCK_SMALL.line_height, 60);
         assert!(CLOCK.covers("12:34 23.10. 1/2 -"));
+        assert!(CLOCK_SMALL.covers("12:34 23.10. 1/2 -"));
         assert!(!CLOCK.covers("12:34 pm"));
+        // Digits stand on the baseline under an empty top of their cell:
+        // their ink is some seven tenths of the face's size.
+        for (font, px) in [(LARGE, 24), (HUGE, 32), (CLOCK_SMALL, 48), (CLOCK, 64)] {
+            let (top, bottom) = font.ink_rows("0123456789").unwrap();
+            assert!(top > 0 && bottom <= font.ascent as i32 + 1, "{}", font.name);
+            let tall = bottom - top;
+            assert!(
+                (px * 7 / 10..=px * 3 / 4).contains(&tall),
+                "{}: {tall}",
+                font.name
+            );
+        }
+        assert_eq!(SMALL.ink_rows(" "), None);
+        // Hours and minutes in the smaller clock face fit a 128-pixel panel.
+        assert!(CLOCK_SMALL.width("23:59") <= 126 && CLOCK.width("23:59") > 126);
         assert!(HUGE.covers("Ärger Ωμέγα Ёлка €"));
     }
 
