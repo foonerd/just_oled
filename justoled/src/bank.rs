@@ -852,7 +852,7 @@ mod tests {
 
     #[test]
     fn no_band_goes_dark_at_a_high_sample_rate() {
-        // A 0.91" strip at 192 and 384 kHz showed its lowest bars dark: on
+        // A 128x64 module at 192 and 384 kHz showed its lowest bars dark: on
         // the 4096 window an FFT bin was 47 and 94 Hz wide, the lowest 7
         // and 14 of 64 log bands fell into bin 1, and all but the first
         // were given weight zero. The window now follows the rate.
